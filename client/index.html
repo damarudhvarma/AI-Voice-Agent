@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Voice Agent - Day 1</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <nav class="nav">
+          <div class="logo">
+            <h2>🎤 VoiceAI</h2>
+          </div>
+          <div class="nav-status">
+            <span class="status-indicator"></span>
+            <span class="status-text">Ready</span>
+          </div>
+        </nav>
+      </header>
+
+      <main class="hero">
+        <div class="hero-content">
+          <div class="hero-badge">
+            <span>Coming Soon</span>
+          </div>
+          <h1 class="hero-title">
+            Next-Generation <br />
+            <span class="gradient-text">AI Voice Agent</span>
+          </h1>
+          <p class="hero-description">
+            Experience the future of conversational AI with our advanced voice
+            agent. Seamless interactions, intelligent responses, and natural
+            conversations powered by cutting-edge technology.
+          </p>
+          <div class="hero-buttons">
+            <button class="btn btn-primary" id="startVoice">
+              <svg
+                class="btn-icon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15S15 13.66 15 12V4C15 2.34 13.66 1 12 1Z"
+                />
+                <path d="M19 10V12C19 15.87 15.87 19 12 19S5 15.87 5 12V10" />
+                <path d="M12 19V23" />
+                <path d="M8 23H16" />
+              </svg>
+              Start Voice Chat
+            </button>
+            <button class="btn btn-secondary" id="learnMore">
+              Learn More
+              <svg
+                class="btn-icon"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M5 12H19" />
+                <path d="M12 5L19 12L12 19" />
+              </svg>
+            </button>
+          </div>
+
+          
+        </div>
+
+        <div class="hero-visual">
+          <div class="voice-indicator" id="voiceIndicator">
+            <div class="pulse-ring"></div>
+            <div class="pulse-ring pulse-ring-2"></div>
+            <div class="pulse-ring pulse-ring-3"></div>
+            <div class="microphone-icon">
+              <svg
+                width="50"
+                height="50"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15S15 13.66 15 12V4C15 2.34 13.66 1 12 1Z"
+                />
+                <path d="M19 10V12C19 15.87 15.87 19 12 19S5 15.87 5 12V10" />
+                <path d="M12 19V23" />
+                <path d="M8 23H16" />
+              </svg>
+            </div>
+          </div>
+
+          <div class="features-grid">
+            <div class="feature-card">
+              <div class="feature-icon">🤖</div>
+              <span>AI Powered</span>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">🎯</div>
+              <span>Accurate</span>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">⚡</div>
+              <span>Fast Response</span>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">🔒</div>
+              <span>Secure</span>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
