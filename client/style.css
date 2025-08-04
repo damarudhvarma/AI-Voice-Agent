@@ -308,6 +308,204 @@ body {
   font-weight: 500;
 }
 
+/* AI Voice Agent Section - Full Width */
+.tts-section {
+  background: linear-gradient(
+    135deg,
+    rgba(15, 15, 35, 0.95) 0%,
+    rgba(26, 26, 46, 0.95) 50%,
+    rgba(22, 33, 62, 0.95) 100%
+  );
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 80px 0;
+  position: relative;
+}
+
+.tts-section::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(102, 126, 234, 0.5),
+    transparent
+  );
+}
+
+.tts-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.tts-section .tts-header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.tts-section .tts-header h2 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+  background: linear-gradient(45deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  background-size: 200% 200%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 3s ease-in-out infinite;
+}
+
+.tts-section .tts-header p {
+  font-size: 1.1rem;
+  color: #b0b0b0;
+  font-weight: 400;
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.tts-section .tts-card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 40px;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-width: 800px;
+  margin: 0 auto;
+  transition: all 0.3s ease;
+}
+
+.tts-section .tts-card:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(102, 126, 234, 0.3);
+  transform: translateY(-4px);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4);
+}
+
+.tts-section .input-group {
+  position: relative;
+  margin-bottom: 24px;
+}
+
+.tts-section .input-group textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 20px;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 120px;
+  transition: all 0.3s ease;
+}
+
+.tts-section .input-group textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+}
+
+.tts-section .input-group textarea::placeholder {
+  color: #888;
+  font-size: 1rem;
+}
+
+.tts-section .character-count {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  font-size: 0.85rem;
+  color: #888;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 4px 8px;
+  border-radius: 6px;
+  backdrop-filter: blur(10px);
+}
+
+.tts-section .tts-controls {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  justify-content: center;
+}
+
+.tts-section .btn-tts {
+  background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4);
+  padding: 16px 40px;
+  font-size: 1.1rem;
+  min-width: 200px;
+}
+
+.tts-section .btn-tts:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.5);
+}
+
+.tts-section .btn-tts:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.tts-section .btn-clear {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  padding: 16px 24px;
+  font-size: 1rem;
+}
+
+.tts-section .btn-clear:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.tts-section .tts-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 24px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tts-section .status-message {
+  font-size: 1rem;
+  color: #b0b0b0;
+  text-align: center;
+}
+
+.tts-section .status-message.success {
+  color: #00ff88;
+}
+
+.tts-section .status-message.error {
+  color: #ff4757;
+}
+
+.tts-section .status-message.loading {
+  color: #667eea;
+}
+
+/* Remove old AI Agent styles */
+.tts-test-section {
+  display: none;
+}
+
 /* Animations */
 @keyframes pulse {
   0%,
@@ -381,5 +579,47 @@ body {
 
   .feature-card span {
     font-size: 0.8rem;
+  }
+
+  .tts-test-section {
+    margin-top: 20px;
+  }
+
+  .tts-controls {
+    flex-direction: column;
+  }
+
+  .btn-clear {
+    justify-content: center;
+  }
+
+  /* AI Voice Agent Section Responsive */
+  .tts-section {
+    padding: 60px 0;
+  }
+
+  .tts-section .tts-header h2 {
+    font-size: 2rem;
+  }
+
+  .tts-section .tts-card {
+    padding: 24px;
+    margin: 0 16px;
+  }
+
+  .tts-section .tts-controls {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .tts-section .btn-tts,
+  .tts-section .btn-clear {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .tts-section .input-group textarea {
+    font-size: 1rem;
+    padding: 16px;
   }
 }

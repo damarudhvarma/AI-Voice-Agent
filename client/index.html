@@ -74,8 +74,6 @@
               </svg>
             </button>
           </div>
-
-          
         </div>
 
         <div class="hero-visual">
@@ -122,6 +120,83 @@
           </div>
         </div>
       </main>
+
+      <!-- AI Voice Agent Section - Full Width -->
+      <section class="tts-section">
+        <div class="tts-container">
+          <div class="tts-header">
+            <h2>🤖 AI Voice Agent</h2>
+            <p>
+              Chat with your AI voice agent. Enter your message and get an
+              intelligent voice response powered by advanced AI technology
+            </p>
+          </div>
+
+          <div class="tts-card">
+            <div class="tts-form">
+              <div class="input-group">
+                <textarea
+                  id="ttsInput"
+                  placeholder="Ask your AI voice agent anything..."
+                  rows="4"
+                  maxlength="500"
+                ></textarea>
+                <div class="character-count">
+                  <span id="charCount">0</span>/500
+                </div>
+              </div>
+
+              <div class="tts-controls">
+                <button class="btn btn-tts" id="generateTts">
+                  <svg
+                    class="btn-icon"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                    ></path>
+                  </svg>
+                  Send Message
+                </button>
+                <button class="btn btn-clear" id="clearText">
+                  <svg
+                    class="btn-icon"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M3 6h18"></path>
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                  </svg>
+                  Clear
+                </button>
+              </div>
+
+              <div class="tts-status" id="ttsStatus">
+                <div class="status-message" id="statusMessage">
+                  Ready to chat with AI agent
+                </div>
+                <div
+                  class="loading-spinner"
+                  id="loadingSpinner"
+                  style="display: none"
+                >
+                  <div class="spinner"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <script src="script.js"></script>

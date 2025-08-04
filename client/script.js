@@ -21,6 +21,9 @@ class VoiceAgent {
         learnMoreBtn.addEventListener('click', () => this.showInfo());
         voiceIndicator.addEventListener('click', () => this.toggleVoiceChat());
 
+        // TTS Test functionality
+        this.setupAIAgentEventListeners();
+
         // Add keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && e.ctrlKey) {
@@ -28,6 +31,103 @@ class VoiceAgent {
                 this.toggleVoiceChat();
             }
         });
+    }
+
+    setupAIAgentEventListeners() {
+        const ttsInput = document.getElementById('ttsInput');
+        const generateBtn = document.getElementById('generateTts');
+        const clearBtn = document.getElementById('clearText');
+        const charCount = document.getElementById('charCount');
+
+        // Character counter
+        ttsInput.addEventListener('input', () => {
+            const count = ttsInput.value.length;
+            charCount.textContent = count;
+
+            if (count > 450) {
+                charCount.style.color = '#ff4757';
+            } else if (count > 350) {
+                charCount.style.color = '#ffa726';
+            } else {
+                charCount.style.color = '#888';
+            }
+        });
+
+        // Generate AI Response
+        generateBtn.addEventListener('click', () => this.handleAIAgentMessage());
+
+        // Clear text
+        clearBtn.addEventListener('click', () => {
+            ttsInput.value = '';
+            charCount.textContent = '0';
+            charCount.style.color = '#888';
+            this.updateTtsStatus('Ready to chat with AI agent', 'default');
+        });
+
+        // Enter key to send message (Ctrl+Enter)
+        ttsInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                this.handleAIAgentMessage();
+            }
+        });
+    }
+
+    async handleAIAgentMessage() {
+        const ttsInput = document.getElementById('ttsInput');
+        const generateBtn = document.getElementById('generateTts');
+        const text = ttsInput.value.trim();
+
+        if (!text) {
+            this.updateTtsStatus('Please enter a message for the AI agent', 'error');
+            return;
+        }
+
+        if (text.length > 500) {
+            this.updateTtsStatus('Message is too long. Maximum 500 characters allowed.', 'error');
+            return;
+        }
+
+        // Disable button and show loading
+        generateBtn.disabled = true;
+        this.updateTtsStatus('AI agent is processing your message...', 'loading', true);
+
+        try {
+            // For now, just simulate the AI response
+            console.log('🤖 AI Agent processing message:', text);
+
+            // Simulate AI processing delay
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // Simulate success
+            this.updateTtsStatus(`AI agent responded successfully! (${text.length} characters processed)`, 'success');
+
+            // Show notification
+            this.showNotification('AI agent response ready! (Simulated)', 'success');
+
+        } catch (error) {
+            console.error('AI Agent Error:', error);
+            this.updateTtsStatus('AI agent failed to respond. Please try again.', 'error');
+            this.showNotification('AI agent response failed', 'error');
+        } finally {
+            // Re-enable button and hide loading
+            generateBtn.disabled = false;
+            this.updateTtsStatus('Ready to chat with AI agent', 'default', false);
+        }
+    }
+
+    updateTtsStatus(message, type = 'default', showSpinner = false) {
+        const statusMessage = document.getElementById('statusMessage');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+
+        statusMessage.textContent = message;
+        statusMessage.className = `status-message ${type}`;
+
+        if (showSpinner) {
+            loadingSpinner.style.display = 'flex';
+        } else {
+            loadingSpinner.style.display = 'none';
+        }
     }
 
     async checkServerConnection() {
@@ -128,14 +228,24 @@ Features planned for this project:
 • Real-time voice recognition
 • AI-powered responses
 • Natural conversation flow
-• Voice synthesis
+• Voice synthesis with Murf AI
 • Multi-language support
 • Custom voice training
+
+Current Features:
+• AI Voice Agent Chat - Send messages to your AI assistant
+• Modern UI with responsive design
+• Server health monitoring
+• Real-time character counting
 
 Day 1: Basic setup with Flask backend and modern frontend
 Day 2-30: Adding AI capabilities, voice recognition, and more!
 
-Press Ctrl+Space to quickly start/stop voice chat.
+Keyboard Shortcuts:
+• Ctrl+Space: Toggle voice chat
+• Ctrl+Enter (in message area): Send message to AI agent
+
+Try the AI agent section below to chat with your intelligent assistant!
         `;
 
         alert(info);
