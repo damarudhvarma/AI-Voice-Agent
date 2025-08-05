@@ -506,6 +506,205 @@ body {
   display: none;
 }
 
+/* Echo Bot Section */
+.echo-bot-section {
+  background: linear-gradient(
+    135deg,
+    rgba(22, 33, 62, 0.95) 0%,
+    rgba(15, 15, 35, 0.95) 50%,
+    rgba(26, 26, 46, 0.95) 100%
+  );
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 80px 0;
+  position: relative;
+  margin-bottom: 10%;
+  margin-top: 10%;
+}
+
+.echo-bot-section::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(118, 75, 162, 0.5),
+    transparent
+  );
+}
+
+.echo-bot-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+  text-align: center;
+}
+
+.echo-bot-section h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+  background: linear-gradient(45deg, #764ba2 0%, #667eea 50%, #f093fb 100%);
+  background-size: 200% 200%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 3s ease-in-out infinite;
+}
+
+.echo-bot-section p {
+  font-size: 1.1rem;
+  color: #b0b0b0;
+  font-weight: 400;
+  max-width: 500px;
+  margin: 0 auto 48px auto;
+  line-height: 1.6;
+}
+
+.echo-bot-card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 40px;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  margin: 0 auto;
+  transition: all 0.3s ease;
+}
+
+.echo-bot-card:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(118, 75, 162, 0.3);
+  transform: translateY(-4px);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4);
+}
+
+.recording-controls {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+
+.btn-record {
+  background: linear-gradient(45deg, #00ff88 0%, #00cc6a 100%);
+  color: white;
+  box-shadow: 0 8px 32px rgba(0, 255, 136, 0.4);
+  padding: 16px 32px;
+  font-size: 1.1rem;
+  min-width: 160px;
+}
+
+.btn-record:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(0, 255, 136, 0.5);
+}
+
+.btn-record:disabled {
+  background: linear-gradient(45deg, #555 0%, #666 100%);
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-record.recording {
+  background: linear-gradient(45deg, #ff4757 0%, #ff3742 100%);
+  box-shadow: 0 8px 32px rgba(255, 71, 87, 0.4);
+  animation: recordingPulse 1.5s ease-in-out infinite;
+}
+
+.btn-stop {
+  background: linear-gradient(45deg, #ff4757 0%, #ff3742 100%);
+  color: white;
+  box-shadow: 0 8px 32px rgba(255, 71, 87, 0.4);
+  padding: 16px 32px;
+  font-size: 1.1rem;
+  min-width: 160px;
+}
+
+.btn-stop:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(255, 71, 87, 0.5);
+}
+
+.btn-stop:disabled {
+  background: linear-gradient(45deg, #555 0%, #666 100%);
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.recording-status {
+  margin-bottom: 24px;
+  padding: 16px 24px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.recording-status .status-message {
+  font-size: 1rem;
+  color: #b0b0b0;
+  margin-bottom: 8px;
+}
+
+.recording-status .status-message.recording {
+  color: #ff4757;
+  font-weight: 600;
+}
+
+.recording-status .status-message.success {
+  color: #00ff88;
+}
+
+.recording-status .status-message.error {
+  color: #ff4757;
+}
+
+.recording-timer {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #ff4757;
+  font-family: "Courier New", monospace;
+}
+
+.audio-playback {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.audio-playback h3 {
+  font-size: 1.2rem;
+  color: #667eea;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.audio-playback audio {
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+@keyframes recordingPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 8px 32px rgba(255, 71, 87, 0.4);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 12px 40px rgba(255, 71, 87, 0.6);
+  }
+}
+
 /* Animations */
 @keyframes pulse {
   0%,
@@ -621,5 +820,30 @@ body {
   .tts-section .input-group textarea {
     font-size: 1rem;
     padding: 16px;
+  }
+
+  /* Echo Bot Section Responsive */
+  .echo-bot-section {
+    padding: 60px 0;
+  }
+
+  .echo-bot-section h1 {
+    font-size: 2rem;
+  }
+
+  .echo-bot-card {
+    padding: 24px;
+    margin: 0 16px;
+  }
+
+  .recording-controls {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .btn-record,
+  .btn-stop {
+    width: 100%;
+    justify-content: center;
   }
 }
