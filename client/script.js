@@ -3,6 +3,10 @@ class VoiceAgent {
     constructor() {
         this.isListening = false;
         this.isConnected = false;
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.recordingStartTime = null;
+        this.timerInterval = null;
         this.init();
     }
 
@@ -23,6 +27,9 @@ class VoiceAgent {
 
         // TTS Test functionality
         this.setupAIAgentEventListeners();
+
+        // Echo Bot functionality
+        this.setupEchoBotEventListeners();
 
         // Add keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -114,6 +121,139 @@ class VoiceAgent {
             generateBtn.disabled = false;
             this.updateTtsStatus('Ready to chat with AI agent', 'default', false);
         }
+    }
+
+    setupEchoBotEventListeners() {
+        const startRecordBtn = document.getElementById('startRecord');
+        const stopRecordBtn = document.getElementById('stopRecord');
+
+        startRecordBtn.addEventListener('click', () => this.startRecording());
+        stopRecordBtn.addEventListener('click', () => this.stopRecording());
+
+        // Check for MediaRecorder support
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            this.updateEchoStatus('Your browser does not support audio recording', 'error');
+            startRecordBtn.disabled = true;
+        }
+    }
+
+    async startRecording() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }
+            });
+
+            this.audioChunks = [];
+            this.mediaRecorder = new MediaRecorder(stream);
+
+            this.mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    this.audioChunks.push(event.data);
+                }
+            };
+
+            this.mediaRecorder.onstop = () => {
+                this.processRecording();
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            this.mediaRecorder.start();
+            this.recordingStartTime = Date.now();
+            this.startTimer();
+
+            // Update UI
+            document.getElementById('startRecord').disabled = true;
+            document.getElementById('startRecord').classList.add('recording');
+            document.getElementById('stopRecord').disabled = false;
+            document.getElementById('audioPlayback').style.display = 'none';
+
+            this.updateEchoStatus('Recording... Speak into your microphone', 'recording');
+
+            console.log('🎙️ Recording started');
+
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            this.updateEchoStatus('Failed to access microphone. Please check permissions.', 'error');
+        }
+    }
+
+    stopRecording() {
+        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+            this.mediaRecorder.stop();
+            this.stopTimer();
+
+            // Update UI
+            document.getElementById('startRecord').disabled = false;
+            document.getElementById('startRecord').classList.remove('recording');
+            document.getElementById('stopRecord').disabled = true;
+
+            this.updateEchoStatus('Processing recording...', 'default');
+
+            console.log('🛑 Recording stopped');
+        }
+    }
+
+    processRecording() {
+        if (this.audioChunks.length === 0) {
+            this.updateEchoStatus('No audio data recorded', 'error');
+            return;
+        }
+
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audioPlayer = document.getElementById('audioPlayer');
+
+        audioPlayer.src = audioUrl;
+        document.getElementById('audioPlayback').style.display = 'block';
+
+        // Calculate recording duration
+        const duration = this.recordingStartTime ?
+            ((Date.now() - this.recordingStartTime) / 1000).toFixed(1) : 0;
+
+        this.updateEchoStatus(`Recording complete! Duration: ${duration}s`, 'success');
+
+        // Auto-play the recording
+        setTimeout(() => {
+            audioPlayer.play().catch(e => {
+                console.log('Auto-play prevented by browser policy');
+            });
+        }, 500);
+
+        console.log('✅ Audio processed and ready for playback');
+    }
+
+    startTimer() {
+        const timerElement = document.getElementById('recordingTimer');
+        const timerText = document.getElementById('timerText');
+
+        timerElement.style.display = 'block';
+
+        this.timerInterval = setInterval(() => {
+            if (this.recordingStartTime) {
+                const elapsed = Math.floor((Date.now() - this.recordingStartTime) / 1000);
+                const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                const seconds = (elapsed % 60).toString().padStart(2, '0');
+                timerText.textContent = `${minutes}:${seconds}`;
+            }
+        }, 1000);
+    }
+
+    stopTimer() {
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
+        }
+        document.getElementById('recordingTimer').style.display = 'none';
+    }
+
+    updateEchoStatus(message, type = 'default') {
+        const statusMessage = document.getElementById('echoStatusMessage');
+        statusMessage.textContent = message;
+        statusMessage.className = `status-message ${type}`;
     }
 
     updateTtsStatus(message, type = 'default', showSpinner = false) {
