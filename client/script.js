@@ -197,33 +197,156 @@ class VoiceAgent {
         }
     }
 
-    processRecording() {
+    async processRecording() {
         if (this.audioChunks.length === 0) {
             this.updateEchoStatus('No audio data recorded', 'error');
             return;
         }
 
         const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audioPlayer = document.getElementById('audioPlayer');
-
-        audioPlayer.src = audioUrl;
-        document.getElementById('audioPlayback').style.display = 'block';
 
         // Calculate recording duration
         const duration = this.recordingStartTime ?
             ((Date.now() - this.recordingStartTime) / 1000).toFixed(1) : 0;
 
-        this.updateEchoStatus(`Recording complete! Duration: ${duration}s`, 'success');
+        this.updateEchoStatus(`Recording complete! Duration: ${duration}s - Processing with AI...`, 'loading');
 
-        // Auto-play the recording
-        setTimeout(() => {
-            audioPlayer.play().catch(e => {
-                console.log('Auto-play prevented by browser policy');
+        // Send to Echo Bot v2 endpoint for transcription + Murf TTS
+        await this.processEchoBot(audioBlob);
+
+        console.log('✅ Audio processed with Echo Bot v2');
+    }
+
+    async transcribeAudioFile(audioBlob) {
+        this.updateEchoStatus('Transcribing audio...', 'loading');
+        try {
+            const formData = new FormData();
+            // Use a timestamp for filename to avoid collisions
+            const filename = `echo_recording_${Date.now()}.wav`;
+            formData.append('audio', audioBlob, filename);
+
+            const response = await fetch('/api/transcribe/file', {
+                method: 'POST',
+                body: formData
             });
-        }, 500);
 
-        console.log('✅ Audio processed and ready for playback');
+            if (!response.ok) {
+                const err = await response.json();
+                this.updateEchoStatus('Transcription failed: ' + (err.error || response.statusText), 'error');
+                return;
+            }
+
+            const result = await response.json();
+            if (result.success && result.transcript) {
+                // Display the transcription in the UI
+                this.displayTranscription(result.transcript, result.confidence, result.audio_duration);
+                this.updateEchoStatus('Transcription complete!', 'success');
+            } else {
+                this.updateEchoStatus('Transcription failed: No transcript received', 'error');
+            }
+        } catch (error) {
+            console.error('Transcription error:', error);
+            this.updateEchoStatus('Transcription failed: ' + error.message, 'error');
+        }
+    }
+
+    displayTranscription(transcript, confidence, duration) {
+        // Create or update transcription display area
+        const echoSection = document.querySelector('.echo-bot');
+        let transcriptionDiv = document.getElementById('transcriptionDisplay');
+
+        if (!transcriptionDiv) {
+            transcriptionDiv = document.createElement('div');
+            transcriptionDiv.id = 'transcriptionDisplay';
+            transcriptionDiv.className = 'transcription-display';
+            transcriptionDiv.innerHTML = `
+                <h4>🎯 Transcription Results</h4>
+                <div class="transcription-content">
+                    <div class="transcript-text" id="transcriptText"></div>
+                    <div class="transcript-metadata" id="transcriptMetadata"></div>
+                </div>
+            `;
+
+            // Insert after audio playback
+            const audioPlayback = document.getElementById('audioPlayback');
+            audioPlayback.parentNode.insertBefore(transcriptionDiv, audioPlayback.nextSibling);
+        }
+
+        // Update the content
+        const transcriptText = document.getElementById('transcriptText');
+        const transcriptMetadata = document.getElementById('transcriptMetadata');
+
+        transcriptText.textContent = transcript || 'No speech detected';
+
+        let metadataHtml = '';
+        if (duration) {
+            metadataHtml += `<span class="metadata-item">Duration: ${duration.toFixed(1)}s</span>`;
+        }
+        if (confidence) {
+            metadataHtml += `<span class="metadata-item">Confidence: ${(confidence * 100).toFixed(1)}%</span>`;
+        }
+        transcriptMetadata.innerHTML = metadataHtml;
+
+        // Show the transcription display
+        transcriptionDiv.style.display = 'block';
+
+        // Scroll into view
+        transcriptionDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        console.log('📝 Transcription displayed:', transcript);
+    }
+
+    async processEchoBot(audioBlob) {
+        this.updateEchoStatus('🎤 Transcribing audio and generating AI voice...', 'loading');
+
+        try {
+            const formData = new FormData();
+            const filename = `echo_recording_${Date.now()}.wav`;
+            formData.append('audio', audioBlob, filename);
+
+            const response = await fetch('/api/tts/echo', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                this.updateEchoStatus('Echo Bot failed: ' + (err.error || response.statusText), 'error');
+                return;
+            }
+
+            const result = await response.json();
+
+            if (result.success && result.audio_url) {
+                // Display the transcription
+                this.displayTranscription(result.transcription, null, null);
+
+                // Play the AI-generated audio
+                const audioPlayer = document.getElementById('audioPlayer');
+                audioPlayer.src = result.audio_url;
+                document.getElementById('audioPlayback').style.display = 'block';
+
+                this.updateEchoStatus(`✅ Echo Bot complete! Playing AI voice...`, 'success');
+
+                // Auto-play the AI-generated audio
+                setTimeout(() => {
+                    audioPlayer.play().catch(e => {
+                        console.log('Auto-play prevented by browser policy');
+                        this.updateEchoStatus('Echo Bot complete! Click play button to hear AI voice.', 'success');
+                    });
+                }, 500);
+
+                console.log('🎵 AI voice generated and playing:', result.audio_url);
+                console.log('📝 Transcription:', result.transcription);
+
+            } else {
+                this.updateEchoStatus('Echo Bot failed: No audio generated', 'error');
+            }
+
+        } catch (error) {
+            console.error('Echo Bot error:', error);
+            this.updateEchoStatus('Echo Bot failed: ' + error.message, 'error');
+        }
     }
 
     startTimer() {
