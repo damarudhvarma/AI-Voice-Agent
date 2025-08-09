@@ -6,6 +6,7 @@ import json
 from werkzeug.utils import secure_filename
 import assemblyai as aai
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 # Load environment variables from .env file
 load_dotenv()
@@ -280,6 +281,49 @@ def tts_echo():
         return jsonify({'error': f'Network error: {str(e)}'}), 500
     except Exception as e:
         return jsonify({'error': f'Echo processing error: {str(e)}'}), 500
+
+@app.route('/api/llm/query', methods=['POST'])
+def llm_query():
+    """
+    LLM Query endpoint: Send text to Google Gemini API and return the response
+    """
+    try:
+        # Check if Gemini API key is configured
+        gemini_api_key = os.getenv('GEMINI_API_KEY', 'your_gemini_api_key_here')
+        
+        if gemini_api_key == 'your_gemini_api_key_here':
+            return jsonify({'error': 'Gemini API key not configured. Please set GEMINI_API_KEY in .env file.'}), 500
+        
+        genai.configure(api_key=gemini_api_key)
+        data = request.get_json()
+        
+        if not data or 'text' not in data:
+            return jsonify({'error': 'Missing text field in request'}), 400
+        
+        query_text = data['text']
+        
+        if not query_text or not query_text.strip():
+            return jsonify({'error': 'Text cannot be empty'}), 400
+        print(f"🤖 LLM Query: {query_text}")
+        # Initialize the Gemini model
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Generate response
+        response = model.generate_content(query_text)
+        
+        if response.text:
+            print(f"✅ LLM Response generated successfully")
+            return jsonify({
+                'success': True,
+                'response': response.text,
+                'query': query_text,
+                'model': 'gemini-1.5-flash'
+            })
+        else:
+            return jsonify({'error': 'No response generated from Gemini API'}), 500
+            
+    except Exception as e:
+        print(f"❌ LLM Query error: {str(e)}")
+        return jsonify({'error': f'LLM query error: {str(e)}'}), 500
 
 if __name__ == '__main__':
     print("🎤 AI Voice Agent Server Starting...")
