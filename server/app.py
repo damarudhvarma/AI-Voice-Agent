@@ -285,42 +285,126 @@ def tts_echo():
 @app.route('/api/llm/query', methods=['POST'])
 def llm_query():
     """
-    LLM Query endpoint: Send text to Google Gemini API and return the response
+    LLM Query endpoint: Accept audio input, transcribe it, send to Gemini API, and return Murf audio response
     """
     try:
-        # Check if Gemini API key is configured
+        # Check if all API keys are configured
+        aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY', 'your_assemblyai_api_key_here')
         gemini_api_key = os.getenv('GEMINI_API_KEY', 'your_gemini_api_key_here')
+        murf_api_key = os.getenv('MURF_API_KEY', 'your_murf_api_key_here')
+        
+        if aai.settings.api_key == 'your_assemblyai_api_key_here':
+            return jsonify({'error': 'AssemblyAI API key not configured. Please set ASSEMBLYAI_API_KEY in .env file.'}), 500
         
         if gemini_api_key == 'your_gemini_api_key_here':
             return jsonify({'error': 'Gemini API key not configured. Please set GEMINI_API_KEY in .env file.'}), 500
         
+        if murf_api_key == 'your_murf_api_key_here':
+            return jsonify({'error': 'Murf API key not configured. Please set MURF_API_KEY in .env file.'}), 500
+        
+        # Check if audio file is provided
+        if 'audio' not in request.files:
+            return jsonify({'error': 'No audio file part in the request'}), 400
+        
+        file = request.files['audio']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+        
+        # Step 1: Transcribe the audio using AssemblyAI
+        print("🎤 Step 1: Transcribing audio with AssemblyAI...")
+        audio_data = file.read()
+        
+        transcriber = aai.Transcriber()
+        transcript = transcriber.transcribe(audio_data)
+        
+        # Check if transcription was successful
+        if transcript.status == aai.TranscriptStatus.error:
+            return jsonify({'error': f'Transcription failed: {transcript.error}'}), 500
+        
+        transcribed_text = transcript.text
+        print(f"📝 Transcription result: {transcribed_text}")
+        
+        if not transcribed_text or not transcribed_text.strip():
+            return jsonify({'error': 'No speech detected in the audio file'}), 400
+        
+        # Step 2: Send transcribed text to Gemini LLM
+        print("🤖 Step 2: Generating LLM response with Gemini...")
         genai.configure(api_key=gemini_api_key)
-        data = request.get_json()
         
-        if not data or 'text' not in data:
-            return jsonify({'error': 'Missing text field in request'}), 400
-        
-        query_text = data['text']
-        
-        if not query_text or not query_text.strip():
-            return jsonify({'error': 'Text cannot be empty'}), 400
-        print(f"🤖 LLM Query: {query_text}")
-        # Initialize the Gemini model
         model = genai.GenerativeModel('gemini-1.5-flash')
-        # Generate response
-        response = model.generate_content(query_text)
+        llm_response = model.generate_content(transcribed_text)
         
-        if response.text:
-            print(f"✅ LLM Response generated successfully")
-            return jsonify({
-                'success': True,
-                'response': response.text,
-                'query': query_text,
-                'model': 'gemini-1.5-flash'
-            })
-        else:
+        if not llm_response.text:
             return jsonify({'error': 'No response generated from Gemini API'}), 500
+        
+        llm_text = llm_response.text
+        print(f"💭 LLM Response: {llm_text[:100]}...")
+        
+        # Step 3: Generate audio from LLM response using Murf
+        print("🎵 Step 3: Generating audio response with Murf...")
+        
+        murf_api_url = "https://api.murf.ai/v1/speech/generate"
+        
+        # Prepare the payload for Murf API
+        murf_payload = {
+            "voiceId": "en-US-ken",  # You can change this to any Murf voice
+            "style": "Conversational",
+            "text": llm_text,
+            "rate": 0,
+            "pitch": 0,
+            "sampleRate": 48000,
+            "format": "MP3",
+            "channelType": "MONO",
+            "pronunciationDictionary": {},
+            "encodeAsBase64": False,
+            "variation": 1,
+            "audioDuration": 0
+        }
+        
+        # Headers for Murf API
+        headers = {
+            'Content-Type': 'application/json',
+            'api-key': murf_api_key
+        }
+        
+        # Make the request to Murf API
+        response = requests.post(
+            murf_api_url,
+            headers=headers,
+            json=murf_payload,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            murf_response = response.json()
+            audio_url = murf_response.get('audioFile', murf_response.get('url', ''))
             
+            if audio_url:
+                print(f"✅ Success! LLM audio response generated: {audio_url}")
+                return jsonify({
+                    'success': True,
+                    'transcription': transcribed_text,
+                    'llm_response': llm_text,
+                    'audio_url': audio_url,
+                    'voice_id': "en-US-ken",
+                    'model': 'gemini-1.5-flash'
+                })
+            else:
+                return jsonify({'error': 'No audio URL received from Murf API'}), 500
+        else:
+            error_msg = f"Murf API error: {response.status_code}"
+            try:
+                error_detail = response.json().get('message', 'Unknown error')
+                error_msg += f" - {error_detail}"
+            except:
+                error_msg += f" - {response.text}"
+            
+            return jsonify({'error': error_msg}), response.status_code
+            
+    except requests.exceptions.Timeout:
+        return jsonify({'error': 'Request timed out. Please try again.'}), 408
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'Network error: {str(e)}'}), 500
     except Exception as e:
         print(f"❌ LLM Query error: {str(e)}")
         return jsonify({'error': f'LLM query error: {str(e)}'}), 500
