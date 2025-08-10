@@ -211,10 +211,10 @@ class VoiceAgent {
 
         this.updateEchoStatus(`Recording complete! Duration: ${duration}s - Processing with AI...`, 'loading');
 
-        // Send to Echo Bot v2 endpoint for transcription + Murf TTS
-        await this.processEchoBot(audioBlob);
+        // Send to LLM Query endpoint for transcription + LLM + Murf TTS
+        await this.processLLMQuery(audioBlob);
 
-        console.log('✅ Audio processed with Echo Bot v2');
+        console.log('✅ Audio processed with LLM Query');
     }
 
     async transcribeAudioFile(audioBlob) {
@@ -347,6 +347,102 @@ class VoiceAgent {
             console.error('Echo Bot error:', error);
             this.updateEchoStatus('Echo Bot failed: ' + error.message, 'error');
         }
+    }
+
+    async processLLMQuery(audioBlob) {
+        this.updateEchoStatus('🎤 Transcribing audio and generating AI response...', 'loading');
+
+        try {
+            const formData = new FormData();
+            const filename = `llm_query_${Date.now()}.wav`;
+            formData.append('audio', audioBlob, filename);
+
+            const response = await fetch('/api/llm/query', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                this.updateEchoStatus('AI Query failed: ' + (err.error || response.statusText), 'error');
+                return;
+            }
+
+            const result = await response.json();
+
+            if (result.success && result.audio_url) {
+                // Display the transcription and LLM response
+                this.displayLLMConversation(result.transcription, result.llm_response);
+
+                // Play the AI-generated audio
+                const audioPlayer = document.getElementById('audioPlayer');
+                audioPlayer.src = result.audio_url;
+                document.getElementById('audioPlayback').style.display = 'block';
+
+                this.updateEchoStatus(`✅ AI conversation complete! Playing response...`, 'success');
+
+                // Auto-play the AI-generated audio
+                setTimeout(() => {
+                    audioPlayer.play().catch(e => {
+                        console.log('Auto-play prevented by browser policy');
+                        this.updateEchoStatus('AI response ready! Click play button to hear the response.', 'success');
+                    });
+                }, 500);
+
+                console.log('🎵 AI response audio generated and playing:', result.audio_url);
+                console.log('📝 Your message:', result.transcription);
+                console.log('🤖 AI response:', result.llm_response);
+
+            } else {
+                this.updateEchoStatus('AI Query failed: No audio generated', 'error');
+            }
+
+        } catch (error) {
+            console.error('LLM Query error:', error);
+            this.updateEchoStatus('AI Query failed: ' + error.message, 'error');
+        }
+    }
+
+    displayLLMConversation(userMessage, aiResponse) {
+        // Create or update conversation display area
+        const echoSection = document.querySelector('.echo-bot');
+        let conversationDiv = document.getElementById('conversationDisplay');
+
+        if (!conversationDiv) {
+            conversationDiv = document.createElement('div');
+            conversationDiv.id = 'conversationDisplay';
+            conversationDiv.className = 'conversation-display';
+            conversationDiv.innerHTML = `
+                <h4>💬 AI Conversation</h4>
+                <div class="conversation-content" id="conversationContent"></div>
+            `;
+
+            // Insert after audio playback
+            const audioPlayback = document.getElementById('audioPlayback');
+            audioPlayback.parentNode.insertBefore(conversationDiv, audioPlayback.nextSibling);
+        }
+
+        // Update the content
+        const conversationContent = document.getElementById('conversationContent');
+
+        conversationContent.innerHTML = `
+            <div class="message user-message">
+                <div class="message-label">🎤 Your message:</div>
+                <div class="message-text">${userMessage || 'No speech detected'}</div>
+            </div>
+            <div class="message ai-message">
+                <div class="message-label">🤖 AI response:</div>
+                <div class="message-text">${aiResponse || 'No response generated'}</div>
+            </div>
+        `;
+
+        // Show the conversation display
+        conversationDiv.style.display = 'block';
+
+        // Scroll into view
+        conversationDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        console.log('💬 Conversation displayed');
     }
 
     startTimer() {

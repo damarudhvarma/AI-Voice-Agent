@@ -753,6 +753,72 @@ body {
   font-weight: 500;
 }
 
+/* Conversation Display Styles */
+.conversation-display {
+  margin-top: 20px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  animation: fadeInUp 0.5s ease-out;
+  display: none;
+}
+
+.conversation-display h4 {
+  color: #ffffff;
+  margin-bottom: 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.conversation-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #b0b0b0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-text {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #ffffff;
+  word-wrap: break-word;
+  min-height: 50px;
+}
+
+.user-message .message-text {
+  border-left: 4px solid #667eea;
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.ai-message .message-text {
+  border-left: 4px solid #f093fb;
+  background: rgba(240, 147, 251, 0.1);
+}
+
+.message-text:empty::after {
+  content: "No content available";
+  color: #888;
+  font-style: italic;
+}
+
 @keyframes fadeInUp {
   from {
     opacity: 0;
