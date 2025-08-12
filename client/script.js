@@ -7,6 +7,9 @@ class VoiceAgent {
         this.audioChunks = [];
         this.recordingStartTime = null;
         this.timerInterval = null;
+        this.sessionId = this.getOrCreateSessionId();
+        this.isConversationMode = false;
+        this.audioPlayer = null;
         this.init();
     }
 
@@ -14,6 +17,69 @@ class VoiceAgent {
         this.setupEventListeners();
         this.checkServerConnection();
         this.animateOnLoad();
+        this.updateSessionDisplay();
+    }
+
+    getOrCreateSessionId() {
+        // Check URL params first
+        const urlParams = new URLSearchParams(window.location.search);
+        let sessionId = urlParams.get('session_id');
+
+        if (!sessionId) {
+            // Generate new session ID
+            sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+            // Update URL without page reload
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.set('session_id', sessionId);
+            window.history.replaceState({}, '', newUrl);
+        }
+
+        console.log('💬 Session ID:', sessionId);
+        return sessionId;
+    }
+
+    updateSessionDisplay() {
+        // Add session info to the UI
+        const echoSection = document.querySelector('.echo-bot');
+        if (echoSection && !document.getElementById('sessionInfo')) {
+            const sessionInfo = document.createElement('div');
+            sessionInfo.id = 'sessionInfo';
+            sessionInfo.className = 'session-info';
+            sessionInfo.innerHTML = `
+                <div class="session-details">
+                    <span class="session-label">💬 Session:</span>
+                    <span class="session-id">${this.sessionId}</span>
+                    <button class="clear-chat-btn" onclick="voiceAgent.clearChatHistory()">🗑️ Clear Chat</button>
+                </div>
+            `;
+            echoSection.insertBefore(sessionInfo, echoSection.firstChild);
+        }
+    }
+
+    async clearChatHistory() {
+        try {
+            const response = await fetch(`/api/agent/chat/${this.sessionId}/clear`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                // Clear any displayed conversation
+                const conversationDiv = document.getElementById('conversationDisplay');
+                if (conversationDiv) {
+                    conversationDiv.style.display = 'none';
+                }
+
+                // Reset conversation history
+                this.conversationHistory = [];
+
+                this.updateEchoStatus('Chat history cleared! Starting fresh conversation.', 'success');
+                console.log('🗑️ Chat history cleared for session:', this.sessionId);
+            }
+        } catch (error) {
+            console.error('Error clearing chat history:', error);
+            this.updateEchoStatus('Failed to clear chat history', 'error');
+        }
     }
 
     setupEventListeners() {
@@ -211,8 +277,8 @@ class VoiceAgent {
 
         this.updateEchoStatus(`Recording complete! Duration: ${duration}s - Processing with AI...`, 'loading');
 
-        // Send to LLM Query endpoint for transcription + LLM + Murf TTS
-        await this.processLLMQuery(audioBlob);
+        // Send to Agent Chat endpoint for conversation with history
+        await this.processAgentChat(audioBlob);
 
         console.log('✅ Audio processed with LLM Query');
     }
@@ -443,6 +509,252 @@ class VoiceAgent {
         conversationDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
         console.log('💬 Conversation displayed');
+    }
+
+    async processAgentChat(audioBlob) {
+        this.updateEchoStatus('🎤 Starting conversation with AI agent...', 'loading');
+
+        try {
+            const formData = new FormData();
+            const filename = `agent_chat_${Date.now()}.wav`;
+            formData.append('audio', audioBlob, filename);
+
+            const response = await fetch(`/api/agent/chat/${this.sessionId}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                this.updateEchoStatus('Agent chat failed: ' + (err.error || response.statusText), 'error');
+                return;
+            }
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Display the conversation
+                this.displayAgentConversation(result.user_message, result.assistant_response, result.message_count);
+
+                // Handle audio playback (either real audio or fallback)
+                this.audioPlayer = document.getElementById('audioPlayer');
+                const audioPlayback = document.getElementById('audioPlayback');
+
+                if (result.audio_url) {
+                    // Normal audio response
+                    this.audioPlayer.src = result.audio_url;
+                    audioPlayback.style.display = 'block';
+
+                    this.updateEchoStatus(`✅ AI response ready! Playing...`, 'success');
+
+                    // Set up audio end listener for automatic next recording
+                    this.audioPlayer.onended = () => {
+                        console.log('🎵 Audio playback finished, starting next recording...');
+                        setTimeout(() => {
+                            this.startNextRecording();
+                        }, 1000);
+                    };
+
+                    // Auto-play the AI-generated audio
+                    setTimeout(() => {
+                        this.audioPlayer.play().catch(e => {
+                            console.log('Auto-play prevented by browser policy');
+                            this.updateEchoStatus('AI response ready! Click play button to hear response.', 'success');
+                        });
+                    }, 500);
+
+                } else if (result.is_fallback && result.fallback_text) {
+                    // Fallback text response (no audio available)
+                    audioPlayback.style.display = 'none';
+
+                    let statusMessage = `⚠️ ${result.fallback_text}`;
+                    if (result.error_type === 'stt_error') {
+                        statusMessage = '� ' + result.fallback_text;
+                    } else if (result.error_type === 'tts_error') {
+                        statusMessage = '🔊 ' + result.fallback_text;
+                    } else if (result.error_type === 'llm_error') {
+                        statusMessage = '🧠 ' + result.fallback_text;
+                    }
+
+                    this.updateEchoStatus(statusMessage, 'warning');
+
+                    // Show fallback message to user
+                    this.showFallbackNotification(result.fallback_text, result.error_type);
+
+                    // Auto-start next recording after fallback
+                    setTimeout(() => {
+                        this.startNextRecording();
+                    }, 3000); // Wait 3 seconds before next recording
+                } else {
+                    this.updateEchoStatus('❌ No audio or fallback response received', 'error');
+                }
+
+                console.log('📝 Your message:', result.user_message);
+                console.log('🤖 AI response:', result.assistant_response);
+                console.log('💬 Total messages in session:', result.message_count);
+                if (result.is_fallback) {
+                    console.log('⚠️ Fallback response due to:', result.error_type);
+                }
+
+            } else {
+                this.updateEchoStatus('Agent chat failed: Invalid response format', 'error');
+            }
+        } catch (error) {
+            console.error('Agent Chat error:', error);
+
+            // Show user-friendly error message
+            this.updateEchoStatus('❌ Connection trouble. Please check your internet and try again.', 'error');
+
+            // Show fallback notification
+            this.showFallbackNotification(
+                "I'm having trouble connecting right now. Please check your internet connection and try again.",
+                'general_error'
+            );
+
+            // Allow user to try again
+            setTimeout(() => {
+                this.updateEchoStatus('Ready to try again...', 'default');
+            }, 5000);
+        }
+    }
+
+    showFallbackNotification(message, errorType) {
+        // Create or update fallback notification
+        let notification = document.getElementById('fallbackNotification');
+
+        if (!notification) {
+            notification = document.createElement('div');
+            notification.id = 'fallbackNotification';
+            notification.className = 'fallback-notification';
+
+            const echoSection = document.querySelector('.echo-bot');
+            echoSection.appendChild(notification);
+        }
+
+        // Set appropriate icon based on error type
+        let icon = '⚠️';
+        let className = 'warning';
+
+        switch (errorType) {
+            case 'stt_error':
+                icon = '🎤';
+                className = 'stt-error';
+                break;
+            case 'llm_error':
+                icon = '🧠';
+                className = 'llm-error';
+                break;
+            case 'tts_error':
+                icon = '🔊';
+                className = 'tts-error';
+                break;
+            case 'api_key_missing':
+                icon = '🔑';
+                className = 'config-error';
+                break;
+            case 'timeout_error':
+                icon = '⏱️';
+                className = 'timeout-error';
+                break;
+            default:
+                icon = '⚠️';
+                className = 'general-error';
+        }
+
+        notification.className = `fallback-notification ${className}`;
+        notification.innerHTML = `
+            <div class="notification-content">
+                <span class="notification-icon">${icon}</span>
+                <span class="notification-message">${message}</span>
+                <button class="notification-close" onclick="this.parentElement.parentElement.remove()">✕</button>
+            </div>
+        `;
+
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            if (notification && notification.parentElement) {
+                notification.remove();
+            }
+        }, 5000);
+
+        console.log(`📢 Fallback notification: ${message}`);
+    }
+
+    async startNextRecording() {
+        // Check if we can start recording automatically
+        const startRecordBtn = document.getElementById('startRecord');
+        const stopRecordBtn = document.getElementById('stopRecord');
+
+        if (!startRecordBtn.disabled && this.mediaRecorder?.state !== 'recording') {
+            this.updateEchoStatus('🎤 Ready for your next message...', 'default');
+
+            // Auto-start recording after a short delay
+            setTimeout(() => {
+                this.startRecording();
+            }, 500);
+        }
+    }
+
+    displayAgentConversation(userMessage, aiResponse, messageCount) {
+        // Create or update conversation display area
+        const echoSection = document.querySelector('.echo-bot');
+        let conversationDiv = document.getElementById('conversationDisplay');
+
+        if (!conversationDiv) {
+            conversationDiv = document.createElement('div');
+            conversationDiv.id = 'conversationDisplay';
+            conversationDiv.className = 'conversation-display';
+            conversationDiv.innerHTML = `
+                <h4>💬 AI Agent Chat (${messageCount} messages)</h4>
+                <div class="conversation-content" id="conversationContent"></div>
+            `;
+
+            // Insert after audio playback
+            const audioPlayback = document.getElementById('audioPlayback');
+            audioPlayback.parentNode.insertBefore(conversationDiv, audioPlayback.nextSibling);
+
+            // Initialize conversation history storage
+            this.conversationHistory = [];
+        } else {
+            // Update message count
+            conversationDiv.querySelector('h4').textContent = `💬 AI Agent Chat (${messageCount} messages)`;
+        }
+
+        // Add new messages to history
+        this.conversationHistory.push(
+            { role: 'user', content: userMessage },
+            { role: 'assistant', content: aiResponse }
+        );
+
+        // Update the content with full conversation
+        const conversationContent = document.getElementById('conversationContent');
+
+        let conversationHTML = '';
+        this.conversationHistory.forEach((msg, index) => {
+            const isUser = msg.role === 'user';
+            const messageClass = isUser ? 'user-message' : 'ai-message';
+            const label = isUser ? '🎤 You' : '🤖 AI Agent';
+            const content = msg.content || (isUser ? 'No speech detected' : 'No response generated');
+
+            conversationHTML += `
+                <div class="message ${messageClass}">
+                    <div class="message-label">${label}</div>
+                    <div class="message-bubble">${content}</div>
+                </div>
+            `;
+        });
+
+        conversationContent.innerHTML = conversationHTML;
+
+        // Show the conversation display
+        conversationDiv.style.display = 'block';
+
+        // Scroll to bottom of conversation
+        setTimeout(() => {
+            conversationContent.scrollTop = conversationContent.scrollHeight;
+        }, 100);
+
+        console.log('💬 Agent conversation displayed with full history');
     }
 
     startTimer() {
