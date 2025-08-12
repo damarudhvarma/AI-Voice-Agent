@@ -14,6 +14,105 @@ load_dotenv()
 app = Flask(__name__, template_folder='../client', static_folder='../client', static_url_path='')
 CORS(app)
 
+# In-memory chat history datastore
+# Key: session_id, Value: list of messages [{role: 'user'/'assistant', content: 'text'}]
+chat_history_store = {}
+
+# Fallback responses for different error scenarios
+FALLBACK_RESPONSES = {
+    'stt_error': "I'm having trouble hearing you right now. Could you please try speaking again?",
+    'llm_error': "I'm having trouble thinking right now. My AI brain seems to be taking a coffee break. Please try again in a moment.",
+    'tts_error': "I'm having trouble speaking right now, but I'm still listening and thinking!",
+    'general_error': "I'm experiencing some technical difficulties right now. Please bear with me while I get back on track.",
+    'api_key_missing': "I'm not properly configured right now. Please check my settings and try again.",
+    'timeout_error': "I'm taking a bit longer than usual to respond. Please try again in a moment."
+}
+
+def generate_fallback_audio(error_type='general_error'):
+    """
+    Generate a fallback response when TTS fails
+    Returns a simple text response that the client can handle
+    """
+    return {
+        'success': True,
+        'audio_url': None,  # No audio available
+        'fallback_text': FALLBACK_RESPONSES.get(error_type, FALLBACK_RESPONSES['general_error']),
+        'error_type': error_type,
+        'is_fallback': True
+    }
+
+def safe_murf_request(text, error_context='tts_error'):
+    """
+    Safely make a request to Murf API with comprehensive error handling
+    """
+    try:
+        murf_api_key = os.getenv('MURF_API_KEY', 'your_murf_api_key_here')
+        
+        if murf_api_key == 'your_murf_api_key_here':
+            print("⚠️ Murf API key not configured")
+            return generate_fallback_audio('api_key_missing')
+        
+        murf_api_url = "https://api.murf.ai/v1/speech/generate"
+        
+        # Prepare the payload for Murf API
+        murf_payload = {
+            "voiceId": "en-US-ken",
+            "style": "Conversational",
+            "text": text,
+            "rate": 0,
+            "pitch": 0,
+            "sampleRate": 48000,
+            "format": "MP3",
+            "channelType": "MONO",
+            "pronunciationDictionary": {},
+            "encodeAsBase64": False,
+            "variation": 1,
+            "audioDuration": 0
+        }
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'api-key': murf_api_key
+        }
+        
+        print(f"🎵 Attempting to generate audio for: {text[:50]}...")
+        
+        response = requests.post(
+            murf_api_url,
+            headers=headers,
+            json=murf_payload,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            murf_response = response.json()
+            audio_url = murf_response.get('audioFile', murf_response.get('url', ''))
+            
+            if audio_url:
+                print(f"✅ Murf TTS successful")
+                return {
+                    'success': True,
+                    'audio_url': audio_url,
+                    'text': text,
+                    'is_fallback': False
+                }
+            else:
+                print("⚠️ Murf API returned no audio URL")
+                return generate_fallback_audio(error_context)
+        else:
+            print(f"⚠️ Murf API error: {response.status_code}")
+            return generate_fallback_audio(error_context)
+            
+    except requests.exceptions.Timeout:
+        print("⚠️ Murf API timeout")
+        return generate_fallback_audio('timeout_error')
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Murf API network error: {str(e)}")
+        return generate_fallback_audio(error_context)
+    except Exception as e:
+        print(f"⚠️ Murf API unexpected error: {str(e)}")
+        return generate_fallback_audio(error_context)
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -27,7 +126,21 @@ def static_files(filename):
 
 @app.route('/api/health')
 def health_check():
-    return {'status': 'healthy', 'message': 'AI Voice Agent Backend is running!'}
+    """Enhanced health check with API status"""
+    aai_key = os.getenv('ASSEMBLYAI_API_KEY', 'your_assemblyai_api_key_here')
+    gemini_key = os.getenv('GEMINI_API_KEY', 'your_gemini_api_key_here') 
+    murf_key = os.getenv('MURF_API_KEY', 'your_murf_api_key_here')
+    
+    return {
+        'status': 'healthy', 
+        'message': 'AI Voice Agent Backend is running!',
+        'apis': {
+            'assemblyai': 'configured' if aai_key != 'your_assemblyai_api_key_here' else 'not_configured',
+            'gemini': 'configured' if gemini_key != 'your_gemini_api_key_here' else 'not_configured',
+            'murf': 'configured' if murf_key != 'your_murf_api_key_here' else 'not_configured'
+        },
+        'error_handling': 'enabled'
+    }
 
 # Audio upload endpoint
 @app.route('/api/upload-audio', methods=['POST'])
@@ -408,6 +521,201 @@ def llm_query():
     except Exception as e:
         print(f"❌ LLM Query error: {str(e)}")
         return jsonify({'error': f'LLM query error: {str(e)}'}), 500
+
+@app.route('/api/agent/chat/<session_id>', methods=['POST'])
+def agent_chat(session_id):
+    """
+    Agent Chat endpoint: Accept audio input, maintain chat history, and return Murf audio response with robust error handling
+    """
+    try:
+        print(f"💬 Starting chat session: {session_id}")
+        
+        # Check if audio file is provided
+        if 'audio' not in request.files:
+            return jsonify({
+                'error': 'No audio file provided',
+                'fallback_audio': generate_fallback_audio('general_error')
+            }), 400
+        
+        file = request.files['audio']
+        if file.filename == '':
+            return jsonify({
+                'error': 'No audio file selected',
+                'fallback_audio': generate_fallback_audio('general_error')
+            }), 400
+        
+        # Step 1: Transcribe the audio using AssemblyAI with error handling
+        print("🎤 Step 1: Transcribing audio with AssemblyAI...")
+        transcribed_text = None
+        
+        try:
+            aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY', 'your_assemblyai_api_key_here')
+            
+            if aai.settings.api_key == 'your_assemblyai_api_key_here':
+                print("⚠️ AssemblyAI API key not configured")
+                fallback = generate_fallback_audio('api_key_missing')
+                return jsonify({
+                    'success': True,
+                    'session_id': session_id,
+                    'user_message': '[Speech Recognition Unavailable]',
+                    'assistant_response': fallback['fallback_text'],
+                    'audio_url': fallback['audio_url'],
+                    'message_count': 1,
+                    'is_fallback': True,
+                    'error_type': 'stt_error'
+                })
+            
+            audio_data = file.read()
+            transcriber = aai.Transcriber()
+            transcript = transcriber.transcribe(audio_data)
+            
+            if transcript.status == aai.TranscriptStatus.error:
+                print(f"⚠️ AssemblyAI transcription error: {transcript.error}")
+                raise Exception(f"Transcription failed: {transcript.error}")
+            
+            transcribed_text = transcript.text
+            print(f"📝 Transcription result: {transcribed_text}")
+            
+            if not transcribed_text or not transcribed_text.strip():
+                print("⚠️ No speech detected in audio")
+                transcribed_text = "[No speech detected]"
+            
+        except Exception as e:
+            print(f"⚠️ STT Error: {str(e)}")
+            transcribed_text = "[Speech recognition failed]"
+            fallback = generate_fallback_audio('stt_error')
+            return jsonify({
+                'success': True,
+                'session_id': session_id,
+                'user_message': transcribed_text,
+                'assistant_response': fallback['fallback_text'],
+                'audio_url': fallback['audio_url'],
+                'message_count': 1,
+                'is_fallback': True,
+                'error_type': 'stt_error'
+            })
+        
+        # Step 2: Manage chat history
+        print("📚 Step 2: Managing chat history...")
+        if session_id not in chat_history_store:
+            chat_history_store[session_id] = []
+        
+        chat_history_store[session_id].append({
+            'role': 'user',
+            'content': transcribed_text
+        })
+        
+        conversation_history = chat_history_store[session_id]
+        print(f"💾 Chat history length: {len(conversation_history)} messages")
+        
+        # Step 3: Generate LLM response with error handling
+        print("🤖 Step 3: Generating LLM response...")
+        llm_text = None
+        
+        try:
+            gemini_api_key = os.getenv('GEMINI_API_KEY', 'your_gemini_api_key_here')
+            
+            if gemini_api_key == 'your_gemini_api_key_here':
+                print("⚠️ Gemini API key not configured")
+                raise Exception("Gemini API key not configured")
+            
+            genai.configure(api_key=gemini_api_key)
+            
+            # Build context for Gemini
+            recent_history = conversation_history[-10:] if len(conversation_history) > 10 else conversation_history
+            context_messages = []
+            
+            for msg in recent_history[:-1]:  # Exclude current message
+                if msg['role'] == 'user':
+                    context_messages.append(f"User: {msg['content']}")
+                else:
+                    context_messages.append(f"Assistant: {msg['content']}")
+            
+            if context_messages:
+                full_prompt = "Previous conversation:\n" + "\n".join(context_messages) + f"\n\nUser: {transcribed_text}\n\nAssistant:"
+            else:
+                full_prompt = transcribed_text
+            
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            llm_response = model.generate_content(full_prompt)
+            
+            if not llm_response.text:
+                raise Exception("No response generated from Gemini")
+            
+            llm_text = llm_response.text
+            print(f"💭 LLM Response: {llm_text[:100]}...")
+            
+        except Exception as e:
+            print(f"⚠️ LLM Error: {str(e)}")
+            llm_text = FALLBACK_RESPONSES['llm_error']
+        
+        # Add assistant response to chat history
+        chat_history_store[session_id].append({
+            'role': 'assistant',
+            'content': llm_text
+        })
+        
+        # Step 4: Generate audio with robust error handling
+        print("🎵 Step 4: Generating audio response...")
+        audio_result = safe_murf_request(llm_text, 'tts_error')
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'user_message': transcribed_text,
+            'assistant_response': llm_text,
+            'audio_url': audio_result.get('audio_url'),
+            'fallback_text': audio_result.get('fallback_text'),
+            'message_count': len(chat_history_store[session_id]),
+            'voice_id': "en-US-ken",
+            'model': 'gemini-1.5-flash',
+            'is_fallback': audio_result.get('is_fallback', False),
+            'error_type': audio_result.get('error_type')
+        })
+            
+    except Exception as e:
+        print(f"❌ Agent Chat critical error: {str(e)}")
+        fallback = generate_fallback_audio('general_error')
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'user_message': '[Error processing request]',
+            'assistant_response': fallback['fallback_text'],
+            'audio_url': fallback['audio_url'],
+            'message_count': 1,
+            'is_fallback': True,
+            'error_type': 'general_error'
+        })
+
+# Helper endpoint to get chat history for a session
+@app.route('/api/agent/chat/<session_id>/history', methods=['GET'])
+def get_chat_history(session_id):
+    """Get chat history for a specific session"""
+    if session_id in chat_history_store:
+        return jsonify({
+            'session_id': session_id,
+            'messages': chat_history_store[session_id],
+            'message_count': len(chat_history_store[session_id])
+        })
+    else:
+        return jsonify({
+            'session_id': session_id,
+            'messages': [],
+            'message_count': 0
+        })
+
+# Helper endpoint to clear chat history for a session
+@app.route('/api/agent/chat/<session_id>/clear', methods=['DELETE'])
+def clear_chat_history(session_id):
+    """Clear chat history for a specific session"""
+    if session_id in chat_history_store:
+        del chat_history_store[session_id]
+    
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'message': 'Chat history cleared'
+    })
 
 if __name__ == '__main__':
     print("🎤 AI Voice Agent Server Starting...")
