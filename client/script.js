@@ -83,127 +83,59 @@ class VoiceAgent {
     }
 
     setupEventListeners() {
-        const startVoiceBtn = document.getElementById('startVoice');
+        const toggleRecordBtn = document.getElementById('toggleRecord');
         const learnMoreBtn = document.getElementById('learnMore');
         const voiceIndicator = document.getElementById('voiceIndicator');
 
-        startVoiceBtn.addEventListener('click', () => this.toggleVoiceChat());
+        toggleRecordBtn.addEventListener('click', () => this.toggleRecording());
         learnMoreBtn.addEventListener('click', () => this.showInfo());
-        voiceIndicator.addEventListener('click', () => this.toggleVoiceChat());
-
-        // TTS Test functionality
-        this.setupAIAgentEventListeners();
-
-        // Echo Bot functionality
-        this.setupEchoBotEventListeners();
+        voiceIndicator.addEventListener('click', () => this.toggleRecording());
 
         // Add keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && e.ctrlKey) {
                 e.preventDefault();
-                this.toggleVoiceChat();
+                this.toggleRecording();
             }
         });
     }
 
-    setupAIAgentEventListeners() {
-        const ttsInput = document.getElementById('ttsInput');
-        const generateBtn = document.getElementById('generateTts');
-        const clearBtn = document.getElementById('clearText');
-        const charCount = document.getElementById('charCount');
+    toggleRecording() {
+        const toggleRecordBtn = document.getElementById('toggleRecord');
+        const recordText = toggleRecordBtn.querySelector('.record-text');
 
-        // Character counter
-        ttsInput.addEventListener('input', () => {
-            const count = ttsInput.value.length;
-            charCount.textContent = count;
-
-            if (count > 450) {
-                charCount.style.color = '#ff4757';
-            } else if (count > 350) {
-                charCount.style.color = '#ffa726';
-            } else {
-                charCount.style.color = '#888';
-            }
-        });
-
-        // Generate AI Response
-        generateBtn.addEventListener('click', () => this.handleAIAgentMessage());
-
-        // Clear text
-        clearBtn.addEventListener('click', () => {
-            ttsInput.value = '';
-            charCount.textContent = '0';
-            charCount.style.color = '#888';
-            this.updateTtsStatus('Ready to chat with AI agent', 'default');
-        });
-
-        // Enter key to send message (Ctrl+Enter)
-        ttsInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && e.ctrlKey) {
-                e.preventDefault();
-                this.handleAIAgentMessage();
-            }
-        });
-    }
-
-    async handleAIAgentMessage() {
-        const ttsInput = document.getElementById('ttsInput');
-        const generateBtn = document.getElementById('generateTts');
-        const text = ttsInput.value.trim();
-
-        if (!text) {
-            this.updateTtsStatus('Please enter a message for the AI agent', 'error');
-            return;
-        }
-
-        if (text.length > 500) {
-            this.updateTtsStatus('Message is too long. Maximum 500 characters allowed.', 'error');
-            return;
-        }
-
-        // Disable button and show loading
-        generateBtn.disabled = true;
-        this.updateTtsStatus('AI agent is processing your message...', 'loading', true);
-
-        try {
-            // For now, just simulate the AI response
-            console.log('🤖 AI Agent processing message:', text);
-
-            // Simulate AI processing delay
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Simulate success
-            this.updateTtsStatus(`AI agent responded successfully! (${text.length} characters processed)`, 'success');
-
-            // Show notification
-            this.showNotification('AI agent response ready! (Simulated)', 'success');
-
-        } catch (error) {
-            console.error('AI Agent Error:', error);
-            this.updateTtsStatus('AI agent failed to respond. Please try again.', 'error');
-            this.showNotification('AI agent response failed', 'error');
-        } finally {
-            // Re-enable button and hide loading
-            generateBtn.disabled = false;
-            this.updateTtsStatus('Ready to chat with AI agent', 'default', false);
+        if (!this.isListening) {
+            this.startRecording();
+            toggleRecordBtn.classList.add('recording');
+            recordText.textContent = 'Stop Recording';
+        } else {
+            this.stopRecording();
+            toggleRecordBtn.classList.remove('recording');
+            recordText.textContent = 'Start Recording';
         }
     }
 
-    setupEchoBotEventListeners() {
-        const startRecordBtn = document.getElementById('startRecord');
-        const stopRecordBtn = document.getElementById('stopRecord');
+    updateVoiceStatus(message, type = 'default', showSpinner = false) {
+        const statusMessage = document.getElementById('statusMessage');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const voiceStatus = document.getElementById('voiceStatus');
 
-        startRecordBtn.addEventListener('click', () => this.startRecording());
-        stopRecordBtn.addEventListener('click', () => this.stopRecording());
+        statusMessage.textContent = message;
+        loadingSpinner.style.display = showSpinner ? 'flex' : 'none';
 
-        // Check for MediaRecorder support
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            this.updateEchoStatus('Your browser does not support audio recording', 'error');
-            startRecordBtn.disabled = true;
+        // Reset classes
+        voiceStatus.className = 'voice-status';
+        if (type !== 'default') {
+            voiceStatus.classList.add(`status-${type}`);
         }
     }
 
     async startRecording() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            this.updateEchoStatus('Your browser does not support audio recording', 'error');
+            return;
+        }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -215,6 +147,7 @@ class VoiceAgent {
 
             this.audioChunks = [];
             this.mediaRecorder = new MediaRecorder(stream);
+            this.isListening = true;
 
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
@@ -232,12 +165,105 @@ class VoiceAgent {
             this.startTimer();
 
             // Update UI
-            document.getElementById('startRecord').disabled = true;
-            document.getElementById('startRecord').classList.add('recording');
-            document.getElementById('stopRecord').disabled = false;
-            document.getElementById('audioPlayback').style.display = 'none';
+            const toggleRecordBtn = document.getElementById('toggleRecord');
+            if (toggleRecordBtn) {
+                toggleRecordBtn.disabled = true;
+                toggleRecordBtn.classList.add('recording');
+            }
+            
+            const audioPlayback = document.getElementById('audioPlayback');
+            if (audioPlayback) {
+                audioPlayback.style.display = 'none';
+            }
 
             this.updateEchoStatus('Recording... Speak into your microphone', 'recording');
+
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            this.updateEchoStatus('Failed to access microphone. Please check permissions.', 'error');
+        }
+    }
+
+    // Add missing methods
+    checkServerConnection() {
+        // Check if server is available
+        fetch('/api/status')
+            .then(response => {
+                if (response.ok) {
+                    this.isConnected = true;
+                    console.log('✅ Server connection established');
+                }
+            })
+            .catch(error => {
+                this.isConnected = false;
+                console.error('❌ Server connection failed:', error);
+            });
+    }
+
+    animateOnLoad() {
+        // Simple animation for UI elements on load
+        const voiceStatus = document.getElementById('voiceStatus');
+        if (voiceStatus) {
+            voiceStatus.classList.add('animate-in');
+            setTimeout(() => {
+                voiceStatus.classList.remove('animate-in');
+            }, 1000);
+        }
+    }
+
+    startTimer() {
+        // Start recording timer
+        const timerDisplay = document.getElementById('recordingTimer');
+        if (!timerDisplay) return;
+        
+        timerDisplay.style.display = 'block';
+        timerDisplay.textContent = '00:00';
+        
+        const startTime = Date.now();
+        this.timerInterval = setInterval(() => {
+            const elapsedTime = Date.now() - startTime;
+            const seconds = Math.floor((elapsedTime / 1000) % 60);
+            const minutes = Math.floor((elapsedTime / (1000 * 60)) % 60);
+            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }, 1000);
+    }
+
+    stopTimer() {
+        // Stop recording timer
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
+        }
+        const timerDisplay = document.getElementById('recordingTimer');
+        if (timerDisplay) {
+            timerDisplay.style.display = 'none';
+        }
+    }
+
+    updateEchoStatus(message, type = 'default', showSpinner = false) {
+        // Update status message in the UI
+        const statusElement = document.getElementById('echoStatus');
+        if (!statusElement) return;
+        
+        // Clear existing classes
+        statusElement.className = 'echo-status';
+        if (type !== 'default') {
+            statusElement.classList.add(`status-${type}`);
+        }
+        
+        statusElement.textContent = message;
+        
+        // Handle spinner if needed
+        const spinner = document.getElementById('echoSpinner');
+        if (spinner) {
+            spinner.style.display = showSpinner ? 'inline-block' : 'none';
+        }
+    }
+
+    showInfo() {
+         // Show information about the application
+         alert('AI Voice Agent\n\nThis application allows you to have voice conversations with an AI assistant.\n\nPress the record button or Ctrl+Space to start recording your voice.');
+     }
 
             console.log('🎙️ Recording started');
 
@@ -253,9 +279,11 @@ class VoiceAgent {
             this.stopTimer();
 
             // Update UI
-            document.getElementById('startRecord').disabled = false;
-            document.getElementById('startRecord').classList.remove('recording');
-            document.getElementById('stopRecord').disabled = true;
+            const toggleRecordBtn = document.getElementById('toggleRecord');
+            if (toggleRecordBtn) {
+                toggleRecordBtn.disabled = false;
+                toggleRecordBtn.classList.remove('recording');
+            }
 
             this.updateEchoStatus('Processing recording...', 'default');
 
@@ -682,10 +710,9 @@ class VoiceAgent {
 
     async startNextRecording() {
         // Check if we can start recording automatically
-        const startRecordBtn = document.getElementById('startRecord');
-        const stopRecordBtn = document.getElementById('stopRecord');
+        const toggleRecordBtn = document.getElementById('toggleRecord');
 
-        if (!startRecordBtn.disabled && this.mediaRecorder?.state !== 'recording') {
+        if (toggleRecordBtn && !toggleRecordBtn.disabled && this.mediaRecorder?.state !== 'recording') {
             this.updateEchoStatus('🎤 Ready for your next message...', 'default');
 
             // Auto-start recording after a short delay
@@ -781,10 +808,39 @@ class VoiceAgent {
         document.getElementById('recordingTimer').style.display = 'none';
     }
 
-    updateEchoStatus(message, type = 'default') {
-        const statusMessage = document.getElementById('echoStatusMessage');
-        statusMessage.textContent = message;
-        statusMessage.className = `status-message ${type}`;
+    async processRecording(audioBlob) {
+        this.updateVoiceStatus('Processing your message...', 'loading', true);
+        
+        try {
+            // Create form data for upload
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'recording.wav');
+            formData.append('session_id', this.sessionId);
+
+            // Upload audio file
+            const response = await fetch('/api/agent/chat', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) throw new Error('Failed to process audio');
+            
+            const data = await response.json();
+            
+            // Auto-play the response
+            if (data.audio_url) {
+                const audio = new Audio(data.audio_url);
+                audio.play();
+            }
+
+            // Display the conversation
+            this.displayAgentConversation(data.user_message, data.ai_response, data.message_count);
+            this.updateVoiceStatus('Ready to record', 'default');
+
+        } catch (error) {
+            console.error('Error processing recording:', error);
+            this.updateVoiceStatus('Error processing your message. Please try again.', 'error');
+        }
     }
 
     updateTtsStatus(message, type = 'default', showSpinner = false) {
