@@ -1,5 +1,6 @@
 from flask import Flask, render_template, send_from_directory, request, jsonify
 from flask_cors import CORS
+from flask_sock import Sock
 import os
 import requests
 import json
@@ -8,11 +9,547 @@ import assemblyai as aai
 from dotenv import load_dotenv
 import google.generativeai as genai
 
+
 # Load environment variables from .env file
 load_dotenv()
 
 app = Flask(__name__, template_folder='../client', static_folder='../client', static_url_path='')
 CORS(app)
+sock = Sock(app)
+
+# Raw WebSocket endpoint for audio streaming
+@sock.route('/ws/audio')
+def websocket_audio(ws):
+    """
+    WebSocket endpoint for receiving audio data from client
+    Saves received audio chunks to files and transcribes in real-time
+    """
+    import time
+    import base64
+    import io
+    import wave
+    import struct
+    import tempfile
+    import os
+    
+    # Import pydub for audio conversion
+    try:
+        from pydub import AudioSegment
+        from pydub.utils import make_chunks
+        pydub_available = True
+        
+        # Try to set FFmpeg path to local installation
+        import os
+        # Check multiple possible FFmpeg locations
+        possible_ffmpeg_paths = [
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ffmpeg.exe'),  # Project root
+            os.path.join(os.getcwd(), 'ffmpeg.exe'),  # Current working directory
+            'ffmpeg.exe',  # In PATH
+            'C:\\ffmpeg\\bin\\ffmpeg.exe',  # Common Windows installation
+        ]
+        
+        ffmpeg_found = False
+        for ffmpeg_path in possible_ffmpeg_paths:
+            if os.path.exists(ffmpeg_path):
+                try:
+                    # Set FFmpeg path for pydub
+                    import pydub
+                    pydub.AudioSegment.converter = ffmpeg_path
+                    pydub.AudioSegment.ffmpeg = ffmpeg_path
+                    print(f"[WebSocket] Using FFmpeg: {ffmpeg_path}")
+                    ffmpeg_found = True
+                    break
+                except Exception as e:
+                    print(f"[WebSocket] Failed to set FFmpeg path {ffmpeg_path}: {e}")
+                    continue
+        
+        if not ffmpeg_found:
+            print(f"[WebSocket] FFmpeg not found in any of the expected locations")
+            print(f"[WebSocket] Searched paths: {possible_ffmpeg_paths}")
+        
+        print(f"[WebSocket] Pydub audio processing available")
+    except ImportError:
+        pydub_available = False
+        print(f"[WebSocket] Pydub not available - using basic audio processing")
+    
+    print(f"[WebSocket] Audio streaming connection established")
+    
+    # Initialize AssemblyAI transcriber
+    aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY', 'your_assemblyai_api_key_here')
+    transcriber = None
+    
+    if aai.settings.api_key != 'your_assemblyai_api_key_here':
+        try:
+            transcriber = aai.Transcriber()
+            print(f"[WebSocket] AssemblyAI transcriber initialized successfully")
+        except Exception as e:
+            print(f"[WebSocket] Failed to initialize AssemblyAI transcriber: {str(e)}")
+            transcriber = None
+    else:
+        print(f"[WebSocket] AssemblyAI API key not configured - transcription disabled")
+    
+    # Create uploads directory if it doesn't exist
+    upload_folder = os.path.join(os.path.dirname(__file__), 'uploads')
+    if not os.path.exists(upload_folder):
+        os.makedirs(upload_folder)
+    
+    # Generate unique session ID for this connection
+    session_id = f"ws_session_{int(time.time())}_{int(time.time() * 1000) % 1000}"
+    current_file_path = None
+    audio_chunks = []
+    transcription_buffer = []
+    last_transcription_time = 0
+    transcription_interval = 3.0  # Transcribe every 3 seconds
+    audio_format = None  # Will be detected from first chunk
+    
+    def create_wav_file(audio_data, sample_rate=16000, channels=1):
+        """Convert raw audio data to WAV format (improved method)"""
+        try:
+            print(f"[WebSocket] Creating improved WAV file from {len(audio_data)} bytes of audio data")
+            
+            # Check if the data looks like it might be valid audio
+            if len(audio_data) < 100:
+                print(f"[WebSocket] Audio data too small, might not be valid")
+                return None
+            
+            # For WebM/Opus data, we need to create a proper WAV file
+            # Since we can't decode the WebM/Opus without FFmpeg, we'll create a WAV file
+            # that AssemblyAI might be able to process, or we'll send the original data
+            
+            # First, try to create a simple WAV file with the raw data
+            try:
+                # Create WAV file in memory with proper headers
+                wav_buffer = io.BytesIO()
+                
+                with wave.open(wav_buffer, 'wb') as wav_file:
+                    wav_file.setnchannels(channels)
+                    wav_file.setsampwidth(2)  # 16-bit audio
+                    wav_file.setframerate(sample_rate)
+                    wav_file.writeframes(audio_data)
+                
+                wav_data = wav_buffer.getvalue()
+                print(f"[WebSocket] Basic WAV file created: {len(wav_data)} bytes")
+                
+                # Check if the WAV file looks valid
+                if len(wav_data) > 44:  # WAV header is 44 bytes
+                    return wav_data
+                else:
+                    print(f"[WebSocket] WAV file too small, might be invalid")
+                    return None
+                
+            except Exception as e:
+                print(f"[WebSocket] Could not create WAV file: {str(e)}")
+                return None
+                
+        except Exception as e:
+            print(f"[WebSocket] Error creating WAV file: {str(e)}")
+            return None
+    
+    def convert_audio_to_wav(audio_data, format_type='webm'):
+        """Convert audio data to WAV format using improved methods"""
+        try:
+            print(f"[WebSocket] Converting audio from {format_type} to WAV (data size: {len(audio_data)} bytes)")
+            
+            # Try pydub first if available and FFmpeg is working
+            if pydub_available:
+                try:
+                    # Create temporary file with the original format
+                    with tempfile.NamedTemporaryFile(suffix=f'.{format_type}', delete=False) as temp_in:
+                        temp_in.write(audio_data)
+                        temp_in_path = temp_in.name
+                    
+                    print(f"[WebSocket] Created temporary input file: {temp_in_path}")
+                    
+                    # Convert to WAV using pydub
+                    try:
+                        audio = AudioSegment.from_file(temp_in_path, format=format_type)
+                        print(f"[WebSocket] Audio loaded: {len(audio)}ms, {audio.channels} channels, {audio.frame_rate}Hz")
+                    except Exception as e:
+                        print(f"[WebSocket] Error loading audio with pydub: {str(e)}")
+                        # Try with auto-detection
+                        try:
+                            audio = AudioSegment.from_file(temp_in_path)
+                            print(f"[WebSocket] Audio loaded with auto-detection: {len(audio)}ms")
+                        except Exception as e2:
+                            print(f"[WebSocket] Auto-detection also failed: {str(e2)}")
+                            raise e2
+                    
+                    # Export as WAV with proper settings for AssemblyAI
+                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_out:
+                        try:
+                            # Use settings that AssemblyAI prefers
+                            audio.export(temp_out.name, format='wav', 
+                                       parameters=['-ar', '16000', '-ac', '1', '-sample_fmt', 's16'])
+                            temp_out_path = temp_out.name
+                            print(f"[WebSocket] Audio exported to WAV: {temp_out_path}")
+                        except Exception as e:
+                            print(f"[WebSocket] Error exporting to WAV: {str(e)}")
+                            # Try without parameters
+                            audio.export(temp_out.name, format='wav')
+                            temp_out_path = temp_out.name
+                            print(f"[WebSocket] Audio exported to WAV (without parameters): {temp_out_path}")
+                    
+                    # Read the converted WAV file
+                    with open(temp_out_path, 'rb') as f:
+                        wav_data = f.read()
+                    
+                    print(f"[WebSocket] WAV conversion successful: {len(wav_data)} bytes")
+                    
+                    # Clean up temporary files
+                    try:
+                        os.unlink(temp_in_path)
+                        os.unlink(temp_out_path)
+                        print(f"[WebSocket] Temporary files cleaned up")
+                    except Exception as e:
+                        print(f"[WebSocket] Warning: Could not clean up temporary files: {str(e)}")
+                    
+                    return wav_data
+                    
+                except Exception as e:
+                    print(f"[WebSocket] Pydub conversion failed: {str(e)}")
+                    print(f"[WebSocket] Falling back to basic conversion")
+            
+            # Fallback: Try to send original WebM data to AssemblyAI
+            if format_type == 'webm':
+                print(f"[WebSocket] Sending original WebM data to AssemblyAI (size: {len(audio_data)} bytes)")
+                return audio_data  # AssemblyAI can handle WebM directly
+            else:
+                # For other formats, try the basic WAV creation
+                return create_wav_file(audio_data)
+            
+        except Exception as e:
+            print(f"[WebSocket] Error converting audio to WAV: {str(e)}")
+            print(f"[WebSocket] Returning original audio data")
+            return audio_data
+    
+    def detect_audio_format(audio_data, format_hint=None):
+        """Detect audio format from the first chunk or format hint"""
+        if format_hint:
+            # Handle MIME type strings (e.g., 'audio/webm;codecs=opus')
+            format_hint_lower = format_hint.lower()
+            
+            # Extract format from MIME type
+            if 'audio/' in format_hint_lower:
+                # Extract the part after 'audio/'
+                format_part = format_hint_lower.split('audio/')[1]
+                # Remove codec info if present
+                if ';' in format_part:
+                    format_part = format_part.split(';')[0]
+                
+                if format_part in ['webm', 'mp4', 'wav', 'mp3', 'ogg']:
+                    return format_part
+                elif format_part == 'mpeg':
+                    return 'mp3'
+                else:
+                    # Default to webm for unknown audio formats
+                    return 'webm'
+            
+            # Handle simple format hints
+            if 'webm' in format_hint_lower:
+                return 'webm'
+            elif 'mp4' in format_hint_lower:
+                return 'mp4'
+            elif 'wav' in format_hint_lower:
+                return 'wav'
+            elif 'mp3' in format_hint_lower:
+                return 'mp3'
+        
+        if len(audio_data) < 4:
+            return 'webm'  # Default to webm for MediaRecorder
+        
+        # Check for common audio format headers
+        if audio_data[:4] == b'RIFF':  # WAV
+            return 'wav'
+        elif audio_data[:4] == b'fLaC':  # FLAC
+            return 'flac'
+        elif audio_data[:4] == b'ID3' or audio_data[:3] == b'\xff\xfb\x90':  # MP3
+            return 'mp3'
+        elif audio_data[:4] == b'\x1a\x45\xdf\xa3':  # WebM/MKV
+            return 'webm'
+        elif audio_data[:4] == b'ftyp':  # MP4
+            return 'mp4'
+        else:
+            # Assume WebM for MediaRecorder
+            return 'webm'
+    
+    try:
+        while True:
+            data = ws.receive()
+            if data is None:
+                break
+            
+            # Try to parse as JSON first (for metadata)
+            try:
+                json_data = json.loads(data)
+                if json_data.get('type') == 'start':
+                    # Start new recording session
+                    timestamp = int(time.time())
+                    filename = f"ws_audio_{session_id}_{timestamp}.wav"
+                    current_file_path = os.path.join(upload_folder, filename)
+                    audio_chunks = []
+                    transcription_buffer = []
+                    last_transcription_time = time.time()
+                    
+                    # Extract format from MIME type (e.g., 'audio/webm;codecs=opus' -> 'webm')
+                    raw_audio_format = json_data.get('audioFormat', 'webm')
+                    audio_format = detect_audio_format(b'', raw_audio_format)
+                    
+                    print(f"[WebSocket] Starting new recording: {filename} (format: {audio_format} from '{raw_audio_format}')")
+                    ws.send(json.dumps({
+                        'type': 'status',
+                        'message': 'Recording started',
+                        'filename': filename
+                    }))
+                    continue
+                elif json_data.get('type') == 'stop':
+                    # Stop recording and save file
+                    if current_file_path and audio_chunks:
+                        try:
+                            # Combine all audio chunks
+                            combined_audio = b''.join(audio_chunks)
+                            
+                            # Convert to WAV format
+                            wav_data = convert_audio_to_wav(combined_audio, audio_format)
+                            if wav_data:
+                                with open(current_file_path, 'wb') as f:
+                                    f.write(wav_data)
+                                file_size = os.path.getsize(current_file_path)
+                                print(f"[WebSocket] Recording saved: {current_file_path} ({file_size} bytes)")
+                                
+                                # Final transcription of complete audio
+                                if transcriber:
+                                    try:
+                                        print(f"[WebSocket] Performing final transcription...")
+                                        transcript = transcriber.transcribe(current_file_path)
+                                        
+                                        if transcript.status == aai.TranscriptStatus.completed:
+                                            print(f"🎤 FINAL TRANSCRIPTION: {transcript.text}")
+                                            ws.send(json.dumps({
+                                                'type': 'final_transcription',
+                                                'transcript': transcript.text,
+                                                'confidence': transcript.confidence if hasattr(transcript, 'confidence') else None
+                                            }))
+                                        else:
+                                            print(f"[WebSocket] Final transcription failed: {transcript.error}")
+                                    except Exception as e:
+                                        print(f"[WebSocket] Final transcription error: {str(e)}")
+                            else:
+                                print(f"[WebSocket] Failed to create WAV file")
+                                
+                        except Exception as e:
+                            print(f"[WebSocket] Error saving audio file: {str(e)}")
+                        
+                        ws.send(json.dumps({
+                            'type': 'status',
+                            'message': 'Recording saved',
+                            'filename': os.path.basename(current_file_path),
+                            'size': file_size if 'file_size' in locals() else 0
+                        }))
+                    else:
+                        ws.send(json.dumps({
+                            'type': 'error',
+                            'message': 'No audio data to save'
+                        }))
+                    continue
+                elif json_data.get('type') == 'ping':
+                    # Keep-alive ping
+                    ws.send(json.dumps({'type': 'pong'}))
+                    continue
+            except json.JSONDecodeError:
+                # Not JSON, treat as binary audio data
+                pass
+            
+            # Handle binary audio data
+            try:
+                # Try to decode as base64 if it's a string
+                if isinstance(data, str):
+                    # Check if it looks like base64
+                    if len(data) > 100 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in data):
+                        audio_data = base64.b64decode(data)
+                    else:
+                        # Not base64, skip
+                        continue
+                else:
+                    # Already binary data
+                    audio_data = data
+                
+                # Store the audio chunk
+                audio_chunks.append(audio_data)
+                transcription_buffer.append(audio_data)
+                
+                current_time = time.time()
+                print(f"[WebSocket] Received audio chunk: {len(audio_data)} bytes (total: {sum(len(chunk) for chunk in audio_chunks)} bytes)")
+                
+                # Perform real-time transcription every few seconds
+                if (transcriber and 
+                    transcription_buffer and 
+                    current_time - last_transcription_time >= transcription_interval):
+                    
+                    try:
+                        print(f"[WebSocket] Performing real-time transcription...")
+                        
+                        # Create temporary WAV file for transcription
+                        combined_audio = b''.join(transcription_buffer)
+                        wav_data = convert_audio_to_wav(combined_audio, audio_format)
+                        
+                        if wav_data:
+                            transcript = None
+                            
+                            # Try different approaches for transcription
+                            transcription_attempts = []
+                            
+                            # Attempt 1: Try with converted WAV file
+                            if audio_format != 'webm' or len(wav_data) > 1000:  # Only try WAV if it's not WebM or if it's substantial
+                                try:
+                                    temp_file = os.path.join(upload_folder, f"temp_transcription_{session_id}.wav")
+                                    with open(temp_file, 'wb') as f:
+                                        f.write(wav_data)
+                                    
+                                    transcript = transcriber.transcribe(temp_file)
+                                    transcription_attempts.append(f"WAV file ({len(wav_data)} bytes)")
+                                    
+                                    # Clean up temporary file
+                                    try:
+                                        os.remove(temp_file)
+                                    except:
+                                        pass
+                                        
+                                except Exception as e:
+                                    print(f"[WebSocket] Error transcribing WAV file: {str(e)}")
+                            
+                            # Attempt 2: Try with original audio data
+                            if not transcript or transcript.status == aai.TranscriptStatus.error:
+                                try:
+                                    print(f"[WebSocket] Trying transcription with original audio data...")
+                                    transcript = transcriber.transcribe(combined_audio)
+                                    transcription_attempts.append(f"Original data ({len(combined_audio)} bytes)")
+                                except Exception as e:
+                                    print(f"[WebSocket] Transcription with original data also failed: {str(e)}")
+                            
+                            # Attempt 3: Try with WebM file (if original format is WebM)
+                            if (not transcript or transcript.status == aai.TranscriptStatus.error) and audio_format == 'webm':
+                                try:
+                                    print(f"[WebSocket] Trying transcription with WebM file...")
+                                    webm_file = os.path.join(upload_folder, f"temp_transcription_{session_id}.webm")
+                                    with open(webm_file, 'wb') as f:
+                                        f.write(combined_audio)
+                                    transcript = transcriber.transcribe(webm_file)
+                                    transcription_attempts.append(f"WebM file ({len(combined_audio)} bytes)")
+                                    
+                                    # Clean up WebM file
+                                    try:
+                                        os.remove(webm_file)
+                                    except:
+                                        pass
+                                        
+                                except Exception as e:
+                                    print(f"[WebSocket] Transcription with WebM file also failed: {str(e)}")
+                            
+                            # Log transcription attempts
+                            if transcription_attempts:
+                                print(f"[WebSocket] Transcription attempts: {', '.join(transcription_attempts)}")
+                            
+                            if transcript and transcript.status == aai.TranscriptStatus.completed:
+                                print(f"🎤 REAL-TIME TRANSCRIPTION: {transcript.text}")
+                                ws.send(json.dumps({
+                                    'type': 'transcription',
+                                    'transcript': transcript.text,
+                                    'confidence': transcript.confidence if hasattr(transcript, 'confidence') else None,
+                                    'timestamp': current_time
+                                }))
+                            elif transcript:
+                                print(f"[WebSocket] Real-time transcription failed: {transcript.error}")
+                                # Send empty transcription to indicate failure
+                                ws.send(json.dumps({
+                                    'type': 'transcription',
+                                    'transcript': '',
+                                    'confidence': 0,
+                                    'timestamp': current_time,
+                                    'error': transcript.error
+                                }))
+                            else:
+                                print(f"[WebSocket] All transcription attempts failed")
+                                # Send empty transcription to indicate failure
+                                ws.send(json.dumps({
+                                    'type': 'transcription',
+                                    'transcript': '',
+                                    'confidence': 0,
+                                    'timestamp': current_time,
+                                    'error': 'All transcription methods failed'
+                                }))
+                        else:
+                            print(f"[WebSocket] Failed to create audio data for transcription")
+                            # Send empty transcription to indicate failure
+                            ws.send(json.dumps({
+                                'type': 'transcription',
+                                'transcript': '',
+                                'confidence': 0,
+                                'timestamp': current_time,
+                                'error': 'Failed to create audio data'
+                            }))
+                        
+                        # Clear buffer after transcription
+                        transcription_buffer = []
+                        last_transcription_time = current_time
+                        
+                    except Exception as e:
+                        print(f"[WebSocket] Real-time transcription error: {str(e)}")
+                        # Don't clear buffer on error, let it accumulate
+                
+                # Send acknowledgment
+                ws.send(json.dumps({
+                    'type': 'chunk_received',
+                    'chunk_size': len(audio_data),
+                    'total_size': sum(len(chunk) for chunk in audio_chunks)
+                }))
+                
+            except Exception as e:
+                print(f"[WebSocket] Error processing audio chunk: {str(e)}")
+                ws.send(json.dumps({
+                    'type': 'error',
+                    'message': f'Error processing audio: {str(e)}'
+                }))
+                
+    except Exception as e:
+        print(f"[WebSocket] Connection error: {str(e)}")
+    finally:
+        # Save any remaining audio data
+        if current_file_path and audio_chunks:
+            try:
+                combined_audio = b''.join(audio_chunks)
+                wav_data = convert_audio_to_wav(combined_audio, audio_format)
+                if wav_data:
+                    with open(current_file_path, 'wb') as f:
+                        f.write(wav_data)
+                    file_size = os.path.getsize(current_file_path)
+                    print(f"[WebSocket] Final recording saved: {current_file_path} ({file_size} bytes)")
+                    
+                    # Final transcription if we have a transcriber
+                    if transcriber:
+                        try:
+                            print(f"[WebSocket] Performing final transcription on saved audio...")
+                            transcript = transcriber.transcribe(current_file_path)
+                            
+                            if transcript.status == aai.TranscriptStatus.completed:
+                                print(f"🎤 FINAL TRANSCRIPTION: {transcript.text}")
+                            else:
+                                print(f"[WebSocket] Final transcription failed: {transcript.error}")
+                        except Exception as e:
+                            print(f"[WebSocket] Final transcription error: {str(e)}")
+            except Exception as e:
+                print(f"[WebSocket] Error in final save: {str(e)}")
+        
+        print(f"[WebSocket] Audio streaming connection closed")
+
+# Raw WebSocket endpoint for echo testing (works with Postman)
+@sock.route('/ws')
+def websocket_echo(ws):
+    while True:
+        data = ws.receive()
+        if data is None:
+            break
+        print(f"[WebSocket] Received: {data}")
+        ws.send(data)
 
 # In-memory chat history datastore
 # Key: session_id, Value: list of messages [{role: 'user'/'assistant', content: 'text'}]
@@ -116,6 +653,11 @@ def safe_murf_request(text, error_context='tts_error'):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/websocket_test.html')
+def websocket_test():
+    """Serve the WebSocket test page"""
+    return send_from_directory('../client', 'websocket_test.html')
 
 @app.route('/<path:filename>')
 def static_files(filename):

@@ -122,89 +122,95 @@
       </main>
 
       <!-- AI Voice Agent Section - Full Width -->
-      <section class="tts-section">
-        <div class="tts-container">
-          <div class="tts-header">
-            <h2>🤖 AI Voice Agent</h2>
+      <section class="ai-voice-agent-section">
+        <div class="ai-agent-container">
+          <div class="ai-agent-header">
+            <h2>🎤 AI Voice Agent</h2>
             <p>
-              Chat with your AI voice agent. Enter your message and get an
-              intelligent voice response powered by advanced AI technology
+              Chat with your AI voice agent using real-time audio streaming and
+              transcription. Experience intelligent conversations powered by
+              AssemblyAI, Gemini, and Murf AI.
             </p>
           </div>
 
-          <div class="voice-chat-card">
+          <div class="ai-agent-card">
             <div class="recording-controls">
               <button class="btn btn-record" id="toggleRecord">
                 <div class="record-icon">
-                  <svg class="btn-icon mic-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                  <svg
+                    class="btn-icon mic-icon"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"
+                    ></path>
                     <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
                     <line x1="12" y1="19" x2="12" y2="22"></line>
                   </svg>
                 </div>
                 <span class="record-text">Start Recording</span>
               </button>
+
+              <div class="recording-info">
+                <div
+                  class="recording-timer"
+                  id="recordingTimer"
+                  style="display: none"
+                >
+                  <span id="timerText">00:00</span>
+                </div>
+                <div class="keyboard-shortcut">
+                  <span>⌨️ Ctrl+Space to toggle</span>
+                </div>
+              </div>
             </div>
 
             <div class="voice-status" id="voiceStatus">
               <div class="status-message" id="statusMessage">
                 Ready to chat with AI agent
               </div>
-              <div class="loading-spinner" id="loadingSpinner" style="display: none">
+              <div
+                class="loading-spinner"
+                id="loadingSpinner"
+                style="display: none"
+              >
                 <div class="spinner"></div>
               </div>
             </div>
+
+            <div class="echo-status" id="echoStatus">
+              Ready to record audio via WebSocket
+            </div>
+
+            <div
+              class="audio-playback"
+              id="audioPlayback"
+              style="display: none"
+            >
+              <h3>🔊 Audio Response</h3>
+              <audio
+                id="audioPlayer"
+                controls
+                style="width: 100%; margin-top: 12px"
+              >
+                Your browser does not support the audio element.
+              </audio>
+            </div>
+
+            <div
+              id="conversationDisplay"
+              class="conversation-display"
+              style="display: none"
+            >
+              <!-- Conversation messages will appear here -->
+            </div>
           </div>
         </div>
-      </section>
-      
-      <!-- Echo Bot Section -->
-      <section class="echo-bot-section">
-        <div class="echo-bot-container">
-          <h1>🎙️ AI Voice Agent</h1>
-          <p>Chat with your AI voice agent. Enter your message and get an intelligent voice response powered by advanced AI technology</p>
-          
-          <div class="echo-bot-card">
-            <div class="recording-controls">
-              <button class="btn btn-record" id="toggleRecord">
-                <div class="record-icon">
-                  <svg class="btn-icon mic-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                    <line x1="12" y1="19" x2="12" y2="22"></line>
-                  </svg>
-                </div>
-                <span class="record-text">Start Recording</span>
-              </button>
-            </div>
-            </div>
-
-             <div class="recording-status" id="recordingStatus">
-              <div class="status-message" id="echoStatusMessage">
-                Ready to record audio
-              </div>
-              <div class="recording-timer" id="recordingTimer" style="display: none;">
-                <span id="timerText">00:00</span>
-              </div>
-            </div>
-
-            <div class="audio-playback" id="audioPlayback" style="display: none;">
-              <h3>🔊 Playback</h3>
-              <audio id="audioPlayer" controls style="width: 100%; margin-top: 12px;">
-                 Your browser does not support the audio element.
-               </audio>
-              </div>
-              
-              <div id="echoStatus" class="echo-status">
-                Ready to chat with AI agent
-              </div>
-              
-              <div id="conversationDisplay" class="conversation-display">
-                <!-- Conversation messages will appear here -->
-              </div>
-            </div>
-          </div>
-        </section>
       </section>
     </div>
 

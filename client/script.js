@@ -1,4 +1,4 @@
-// AI Voice Agent - Day 1 JavaScript
+// AI Voice Agent - WebSocket Audio Streaming Version
 class VoiceAgent {
     constructor() {
         this.isListening = false;
@@ -10,6 +10,13 @@ class VoiceAgent {
         this.sessionId = this.getOrCreateSessionId();
         this.isConversationMode = false;
         this.audioPlayer = null;
+
+        // WebSocket properties
+        this.websocket = null;
+        this.isWebSocketConnected = false;
+        this.audioStreamInterval = null;
+        this.chunkInterval = 100; // Send audio chunks every 100ms
+
         this.init();
     }
 
@@ -130,6 +137,82 @@ class VoiceAgent {
         }
     }
 
+    // WebSocket connection management
+    connectWebSocket() {
+        return new Promise((resolve, reject) => {
+            try {
+                // Determine WebSocket URL
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/audio`;
+
+                console.log('🔌 Connecting to WebSocket:', wsUrl);
+
+                this.websocket = new WebSocket(wsUrl);
+
+                this.websocket.onopen = () => {
+                    console.log('✅ WebSocket connected');
+                    this.isWebSocketConnected = true;
+                    resolve();
+                };
+
+                this.websocket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('📨 WebSocket message:', data);
+
+                        if (data.type === 'status') {
+                            this.updateEchoStatus(`WebSocket: ${data.message}`, 'success');
+                        } else if (data.type === 'error') {
+                            this.updateEchoStatus(`WebSocket Error: ${data.message}`, 'error');
+                        } else if (data.type === 'chunk_received') {
+                            // Optional: Update status with chunk info
+                            // this.updateEchoStatus(`Received chunk: ${data.chunk_size} bytes`, 'default');
+                        } else if (data.type === 'transcription') {
+                            // Handle real-time transcription
+                            console.log('🎤 Real-time transcription:', data.transcript);
+                            this.updateEchoStatus(`🎤 Real-time: ${data.transcript}`, 'transcription');
+
+                            // Display transcription in UI
+                            this.displayTranscription(data.transcript, 'real-time', data.confidence);
+                        } else if (data.type === 'final_transcription') {
+                            // Handle final transcription
+                            console.log('🎤 Final transcription:', data.transcript);
+                            this.updateEchoStatus(`🎤 Final: ${data.transcript}`, 'success');
+
+                            // Display final transcription in UI
+                            this.displayTranscription(data.transcript, 'final', data.confidence);
+                        }
+                    } catch (e) {
+                        console.log('📨 WebSocket raw message:', event.data);
+                    }
+                };
+
+                this.websocket.onerror = (error) => {
+                    console.error('❌ WebSocket error:', error);
+                    this.isWebSocketConnected = false;
+                    reject(error);
+                };
+
+                this.websocket.onclose = () => {
+                    console.log('🔌 WebSocket disconnected');
+                    this.isWebSocketConnected = false;
+                };
+
+            } catch (error) {
+                console.error('❌ WebSocket connection error:', error);
+                reject(error);
+            }
+        });
+    }
+
+    disconnectWebSocket() {
+        if (this.websocket) {
+            this.websocket.close();
+            this.websocket = null;
+            this.isWebSocketConnected = false;
+        }
+    }
+
     async startRecording() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             this.updateEchoStatus('Your browser does not support audio recording', 'error');
@@ -137,30 +220,67 @@ class VoiceAgent {
         }
 
         try {
+            // Connect to WebSocket first
+            await this.connectWebSocket();
+
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: false,
                     noiseSuppression: false,
-                    autoGainControl: false
+                    autoGainControl: false,
+                    sampleRate: 16000,  // Use 16kHz for better compatibility
+                    channelCount: 1     // Mono audio
                 }
             });
 
             this.audioChunks = [];
-            this.mediaRecorder = new MediaRecorder(stream);
+
+            // Configure MediaRecorder with compatible settings
+            const options = {
+                mimeType: 'audio/webm;codecs=opus',  // Use WebM with Opus codec
+                audioBitsPerSecond: 16000
+            };
+
+            // Fallback to other formats if WebM is not supported
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options.mimeType = 'audio/mp4';
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'audio/wav';
+                    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                        // Use default format
+                        delete options.mimeType;
+                    }
+                }
+            }
+
+            console.log('🎤 Using audio format:', options.mimeType || 'default');
+
+            this.mediaRecorder = new MediaRecorder(stream, options);
             this.isListening = true;
+
+            // Send start signal to WebSocket
+            if (this.isWebSocketConnected) {
+                this.websocket.send(JSON.stringify({
+                    type: 'start',
+                    timestamp: Date.now(),
+                    audioFormat: options.mimeType || 'default'
+                }));
+            }
 
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
-                    this.audioChunks.push(event.data);
+                    // Send audio chunk immediately via WebSocket
+                    this.sendAudioChunk(event.data);
                 }
             };
 
             this.mediaRecorder.onstop = () => {
-                this.processRecording();
+                this.stopWebSocketStreaming();
                 stream.getTracks().forEach(track => track.stop());
             };
 
-            this.mediaRecorder.start();
+            // Start recording with small timeslice for frequent chunks
+            this.mediaRecorder.start(this.chunkInterval);
             this.recordingStartTime = Date.now();
             this.startTimer();
 
@@ -170,13 +290,13 @@ class VoiceAgent {
                 toggleRecordBtn.disabled = true;
                 toggleRecordBtn.classList.add('recording');
             }
-            
+
             const audioPlayback = document.getElementById('audioPlayback');
             if (audioPlayback) {
                 audioPlayback.style.display = 'none';
             }
 
-            this.updateEchoStatus('Recording... Speak into your microphone', 'recording');
+            this.updateEchoStatus('Recording... Sending audio via WebSocket', 'recording');
 
         } catch (error) {
             console.error('Error starting recording:', error);
@@ -184,92 +304,32 @@ class VoiceAgent {
         }
     }
 
-    // Add missing methods
-    checkServerConnection() {
-        // Check if server is available
-        fetch('/api/status')
-            .then(response => {
-                if (response.ok) {
-                    this.isConnected = true;
-                    console.log('✅ Server connection established');
-                }
-            })
-            .catch(error => {
-                this.isConnected = false;
-                console.error('❌ Server connection failed:', error);
-            });
-    }
-
-    animateOnLoad() {
-        // Simple animation for UI elements on load
-        const voiceStatus = document.getElementById('voiceStatus');
-        if (voiceStatus) {
-            voiceStatus.classList.add('animate-in');
-            setTimeout(() => {
-                voiceStatus.classList.remove('animate-in');
-            }, 1000);
+    sendAudioChunk(audioBlob) {
+        if (!this.isWebSocketConnected || !this.websocket) {
+            console.warn('WebSocket not connected, cannot send audio chunk');
+            return;
         }
-    }
 
-    startTimer() {
-        // Start recording timer
-        const timerDisplay = document.getElementById('recordingTimer');
-        if (!timerDisplay) return;
-        
-        timerDisplay.style.display = 'block';
-        timerDisplay.textContent = '00:00';
-        
-        const startTime = Date.now();
-        this.timerInterval = setInterval(() => {
-            const elapsedTime = Date.now() - startTime;
-            const seconds = Math.floor((elapsedTime / 1000) % 60);
-            const minutes = Math.floor((elapsedTime / (1000 * 60)) % 60);
-            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        }, 1000);
-    }
-
-    stopTimer() {
-        // Stop recording timer
-        if (this.timerInterval) {
-            clearInterval(this.timerInterval);
-            this.timerInterval = null;
-        }
-        const timerDisplay = document.getElementById('recordingTimer');
-        if (timerDisplay) {
-            timerDisplay.style.display = 'none';
-        }
-    }
-
-    updateEchoStatus(message, type = 'default', showSpinner = false) {
-        // Update status message in the UI
-        const statusElement = document.getElementById('echoStatus');
-        if (!statusElement) return;
-        
-        // Clear existing classes
-        statusElement.className = 'echo-status';
-        if (type !== 'default') {
-            statusElement.classList.add(`status-${type}`);
-        }
-        
-        statusElement.textContent = message;
-        
-        // Handle spinner if needed
-        const spinner = document.getElementById('echoSpinner');
-        if (spinner) {
-            spinner.style.display = showSpinner ? 'inline-block' : 'none';
-        }
-    }
-
-    showInfo() {
-         // Show information about the application
-         alert('AI Voice Agent\n\nThis application allows you to have voice conversations with an AI assistant.\n\nPress the record button or Ctrl+Space to start recording your voice.');
-     }
-
-            console.log('🎙️ Recording started');
-
+        try {
+            // Convert blob to base64 and send
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64Data = reader.result.split(',')[1]; // Remove data URL prefix
+                this.websocket.send(base64Data);
+            };
+            reader.readAsDataURL(audioBlob);
         } catch (error) {
-            console.error('Error starting recording:', error);
-            this.updateEchoStatus('Failed to access microphone. Please check permissions.', 'error');
+            console.error('Error sending audio chunk:', error);
+        }
+    }
+
+    stopWebSocketStreaming() {
+        if (this.isWebSocketConnected && this.websocket) {
+            // Send stop signal
+            this.websocket.send(JSON.stringify({
+                type: 'stop',
+                timestamp: Date.now()
+            }));
         }
     }
 
@@ -285,532 +345,16 @@ class VoiceAgent {
                 toggleRecordBtn.classList.remove('recording');
             }
 
-            this.updateEchoStatus('Processing recording...', 'default');
+            this.updateEchoStatus('Recording stopped. Audio saved via WebSocket.', 'success');
 
             console.log('🛑 Recording stopped');
         }
     }
 
-    async processRecording() {
-        if (this.audioChunks.length === 0) {
-            this.updateEchoStatus('No audio data recorded', 'error');
-            return;
-        }
-
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-
-        // Calculate recording duration
-        const duration = this.recordingStartTime ?
-            ((Date.now() - this.recordingStartTime) / 1000).toFixed(1) : 0;
-
-        this.updateEchoStatus(`Recording complete! Duration: ${duration}s - Processing with AI...`, 'loading');
-
-        // Send to Agent Chat endpoint for conversation with history
-        await this.processAgentChat(audioBlob);
-
-        console.log('✅ Audio processed with LLM Query');
-    }
-
-    async transcribeAudioFile(audioBlob) {
-        this.updateEchoStatus('Transcribing audio...', 'loading');
-        try {
-            const formData = new FormData();
-            // Use a timestamp for filename to avoid collisions
-            const filename = `echo_recording_${Date.now()}.wav`;
-            formData.append('audio', audioBlob, filename);
-
-            const response = await fetch('/api/transcribe/file', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                this.updateEchoStatus('Transcription failed: ' + (err.error || response.statusText), 'error');
-                return;
-            }
-
-            const result = await response.json();
-            if (result.success && result.transcript) {
-                // Display the transcription in the UI
-                this.displayTranscription(result.transcript, result.confidence, result.audio_duration);
-                this.updateEchoStatus('Transcription complete!', 'success');
-            } else {
-                this.updateEchoStatus('Transcription failed: No transcript received', 'error');
-            }
-        } catch (error) {
-            console.error('Transcription error:', error);
-            this.updateEchoStatus('Transcription failed: ' + error.message, 'error');
-        }
-    }
-
-    displayTranscription(transcript, confidence, duration) {
-        // Create or update transcription display area
-        const echoSection = document.querySelector('.echo-bot');
-        let transcriptionDiv = document.getElementById('transcriptionDisplay');
-
-        if (!transcriptionDiv) {
-            transcriptionDiv = document.createElement('div');
-            transcriptionDiv.id = 'transcriptionDisplay';
-            transcriptionDiv.className = 'transcription-display';
-            transcriptionDiv.innerHTML = `
-                <h4>🎯 Transcription Results</h4>
-                <div class="transcription-content">
-                    <div class="transcript-text" id="transcriptText"></div>
-                    <div class="transcript-metadata" id="transcriptMetadata"></div>
-                </div>
-            `;
-
-            // Insert after audio playback
-            const audioPlayback = document.getElementById('audioPlayback');
-            audioPlayback.parentNode.insertBefore(transcriptionDiv, audioPlayback.nextSibling);
-        }
-
-        // Update the content
-        const transcriptText = document.getElementById('transcriptText');
-        const transcriptMetadata = document.getElementById('transcriptMetadata');
-
-        transcriptText.textContent = transcript || 'No speech detected';
-
-        let metadataHtml = '';
-        if (duration) {
-            metadataHtml += `<span class="metadata-item">Duration: ${duration.toFixed(1)}s</span>`;
-        }
-        if (confidence) {
-            metadataHtml += `<span class="metadata-item">Confidence: ${(confidence * 100).toFixed(1)}%</span>`;
-        }
-        transcriptMetadata.innerHTML = metadataHtml;
-
-        // Show the transcription display
-        transcriptionDiv.style.display = 'block';
-
-        // Scroll into view
-        transcriptionDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-        console.log('📝 Transcription displayed:', transcript);
-    }
-
-    async processEchoBot(audioBlob) {
-        this.updateEchoStatus('🎤 Transcribing audio and generating AI voice...', 'loading');
-
-        try {
-            const formData = new FormData();
-            const filename = `echo_recording_${Date.now()}.wav`;
-            formData.append('audio', audioBlob, filename);
-
-            const response = await fetch('/api/tts/echo', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                this.updateEchoStatus('Echo Bot failed: ' + (err.error || response.statusText), 'error');
-                return;
-            }
-
-            const result = await response.json();
-
-            if (result.success && result.audio_url) {
-                // Display the transcription
-                this.displayTranscription(result.transcription, null, null);
-
-                // Play the AI-generated audio
-                const audioPlayer = document.getElementById('audioPlayer');
-                audioPlayer.src = result.audio_url;
-                document.getElementById('audioPlayback').style.display = 'block';
-
-                this.updateEchoStatus(`✅ Echo Bot complete! Playing AI voice...`, 'success');
-
-                // Auto-play the AI-generated audio
-                setTimeout(() => {
-                    audioPlayer.play().catch(e => {
-                        console.log('Auto-play prevented by browser policy');
-                        this.updateEchoStatus('Echo Bot complete! Click play button to hear AI voice.', 'success');
-                    });
-                }, 500);
-
-                console.log('🎵 AI voice generated and playing:', result.audio_url);
-                console.log('📝 Transcription:', result.transcription);
-
-            } else {
-                this.updateEchoStatus('Echo Bot failed: No audio generated', 'error');
-            }
-
-        } catch (error) {
-            console.error('Echo Bot error:', error);
-            this.updateEchoStatus('Echo Bot failed: ' + error.message, 'error');
-        }
-    }
-
-    async processLLMQuery(audioBlob) {
-        this.updateEchoStatus('🎤 Transcribing audio and generating AI response...', 'loading');
-
-        try {
-            const formData = new FormData();
-            const filename = `llm_query_${Date.now()}.wav`;
-            formData.append('audio', audioBlob, filename);
-
-            const response = await fetch('/api/llm/query', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                this.updateEchoStatus('AI Query failed: ' + (err.error || response.statusText), 'error');
-                return;
-            }
-
-            const result = await response.json();
-
-            if (result.success && result.audio_url) {
-                // Display the transcription and LLM response
-                this.displayLLMConversation(result.transcription, result.llm_response);
-
-                // Play the AI-generated audio
-                const audioPlayer = document.getElementById('audioPlayer');
-                audioPlayer.src = result.audio_url;
-                document.getElementById('audioPlayback').style.display = 'block';
-
-                this.updateEchoStatus(`✅ AI conversation complete! Playing response...`, 'success');
-
-                // Auto-play the AI-generated audio
-                setTimeout(() => {
-                    audioPlayer.play().catch(e => {
-                        console.log('Auto-play prevented by browser policy');
-                        this.updateEchoStatus('AI response ready! Click play button to hear the response.', 'success');
-                    });
-                }, 500);
-
-                console.log('🎵 AI response audio generated and playing:', result.audio_url);
-                console.log('📝 Your message:', result.transcription);
-                console.log('🤖 AI response:', result.llm_response);
-
-            } else {
-                this.updateEchoStatus('AI Query failed: No audio generated', 'error');
-            }
-
-        } catch (error) {
-            console.error('LLM Query error:', error);
-            this.updateEchoStatus('AI Query failed: ' + error.message, 'error');
-        }
-    }
-
-    displayLLMConversation(userMessage, aiResponse) {
-        // Create or update conversation display area
-        const echoSection = document.querySelector('.echo-bot');
-        let conversationDiv = document.getElementById('conversationDisplay');
-
-        if (!conversationDiv) {
-            conversationDiv = document.createElement('div');
-            conversationDiv.id = 'conversationDisplay';
-            conversationDiv.className = 'conversation-display';
-            conversationDiv.innerHTML = `
-                <h4>💬 AI Conversation</h4>
-                <div class="conversation-content" id="conversationContent"></div>
-            `;
-
-            // Insert after audio playback
-            const audioPlayback = document.getElementById('audioPlayback');
-            audioPlayback.parentNode.insertBefore(conversationDiv, audioPlayback.nextSibling);
-        }
-
-        // Update the content
-        const conversationContent = document.getElementById('conversationContent');
-
-        conversationContent.innerHTML = `
-            <div class="message user-message">
-                <div class="message-label">🎤 Your message:</div>
-                <div class="message-text">${userMessage || 'No speech detected'}</div>
-            </div>
-            <div class="message ai-message">
-                <div class="message-label">🤖 AI response:</div>
-                <div class="message-text">${aiResponse || 'No response generated'}</div>
-            </div>
-        `;
-
-        // Show the conversation display
-        conversationDiv.style.display = 'block';
-
-        // Scroll into view
-        conversationDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-        console.log('💬 Conversation displayed');
-    }
-
-    async processAgentChat(audioBlob) {
-        this.updateEchoStatus('🎤 Starting conversation with AI agent...', 'loading');
-
-        try {
-            const formData = new FormData();
-            const filename = `agent_chat_${Date.now()}.wav`;
-            formData.append('audio', audioBlob, filename);
-
-            const response = await fetch(`/api/agent/chat/${this.sessionId}`, {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                this.updateEchoStatus('Agent chat failed: ' + (err.error || response.statusText), 'error');
-                return;
-            }
-
-            const result = await response.json();
-
-            if (result.success) {
-                // Display the conversation
-                this.displayAgentConversation(result.user_message, result.assistant_response, result.message_count);
-
-                // Handle audio playback (either real audio or fallback)
-                this.audioPlayer = document.getElementById('audioPlayer');
-                const audioPlayback = document.getElementById('audioPlayback');
-
-                if (result.audio_url) {
-                    // Normal audio response
-                    this.audioPlayer.src = result.audio_url;
-                    audioPlayback.style.display = 'block';
-
-                    this.updateEchoStatus(`✅ AI response ready! Playing...`, 'success');
-
-                    // Set up audio end listener for automatic next recording
-                    this.audioPlayer.onended = () => {
-                        console.log('🎵 Audio playback finished, starting next recording...');
-                        setTimeout(() => {
-                            this.startNextRecording();
-                        }, 1000);
-                    };
-
-                    // Auto-play the AI-generated audio
-                    setTimeout(() => {
-                        this.audioPlayer.play().catch(e => {
-                            console.log('Auto-play prevented by browser policy');
-                            this.updateEchoStatus('AI response ready! Click play button to hear response.', 'success');
-                        });
-                    }, 500);
-
-                } else if (result.is_fallback && result.fallback_text) {
-                    // Fallback text response (no audio available)
-                    audioPlayback.style.display = 'none';
-
-                    let statusMessage = `⚠️ ${result.fallback_text}`;
-                    if (result.error_type === 'stt_error') {
-                        statusMessage = '� ' + result.fallback_text;
-                    } else if (result.error_type === 'tts_error') {
-                        statusMessage = '🔊 ' + result.fallback_text;
-                    } else if (result.error_type === 'llm_error') {
-                        statusMessage = '🧠 ' + result.fallback_text;
-                    }
-
-                    this.updateEchoStatus(statusMessage, 'warning');
-
-                    // Show fallback message to user
-                    this.showFallbackNotification(result.fallback_text, result.error_type);
-
-                    // Auto-start next recording after fallback
-                    setTimeout(() => {
-                        this.startNextRecording();
-                    }, 3000); // Wait 3 seconds before next recording
-                } else {
-                    this.updateEchoStatus('❌ No audio or fallback response received', 'error');
-                }
-
-                console.log('📝 Your message:', result.user_message);
-                console.log('🤖 AI response:', result.assistant_response);
-                console.log('💬 Total messages in session:', result.message_count);
-                if (result.is_fallback) {
-                    console.log('⚠️ Fallback response due to:', result.error_type);
-                }
-
-            } else {
-                this.updateEchoStatus('Agent chat failed: Invalid response format', 'error');
-            }
-        } catch (error) {
-            console.error('Agent Chat error:', error);
-
-            // Show user-friendly error message
-            this.updateEchoStatus('❌ Connection trouble. Please check your internet and try again.', 'error');
-
-            // Show fallback notification
-            this.showFallbackNotification(
-                "I'm having trouble connecting right now. Please check your internet connection and try again.",
-                'general_error'
-            );
-
-            // Allow user to try again
-            setTimeout(() => {
-                this.updateEchoStatus('Ready to try again...', 'default');
-            }, 5000);
-        }
-    }
-
-    showFallbackNotification(message, errorType) {
-        // Create or update fallback notification
-        let notification = document.getElementById('fallbackNotification');
-
-        if (!notification) {
-            notification = document.createElement('div');
-            notification.id = 'fallbackNotification';
-            notification.className = 'fallback-notification';
-
-            const echoSection = document.querySelector('.echo-bot');
-            echoSection.appendChild(notification);
-        }
-
-        // Set appropriate icon based on error type
-        let icon = '⚠️';
-        let className = 'warning';
-
-        switch (errorType) {
-            case 'stt_error':
-                icon = '🎤';
-                className = 'stt-error';
-                break;
-            case 'llm_error':
-                icon = '🧠';
-                className = 'llm-error';
-                break;
-            case 'tts_error':
-                icon = '🔊';
-                className = 'tts-error';
-                break;
-            case 'api_key_missing':
-                icon = '🔑';
-                className = 'config-error';
-                break;
-            case 'timeout_error':
-                icon = '⏱️';
-                className = 'timeout-error';
-                break;
-            default:
-                icon = '⚠️';
-                className = 'general-error';
-        }
-
-        notification.className = `fallback-notification ${className}`;
-        notification.innerHTML = `
-            <div class="notification-content">
-                <span class="notification-icon">${icon}</span>
-                <span class="notification-message">${message}</span>
-                <button class="notification-close" onclick="this.parentElement.parentElement.remove()">✕</button>
-            </div>
-        `;
-
-        // Auto-hide after 5 seconds
-        setTimeout(() => {
-            if (notification && notification.parentElement) {
-                notification.remove();
-            }
-        }, 5000);
-
-        console.log(`📢 Fallback notification: ${message}`);
-    }
-
-    async startNextRecording() {
-        // Check if we can start recording automatically
-        const toggleRecordBtn = document.getElementById('toggleRecord');
-
-        if (toggleRecordBtn && !toggleRecordBtn.disabled && this.mediaRecorder?.state !== 'recording') {
-            this.updateEchoStatus('🎤 Ready for your next message...', 'default');
-
-            // Auto-start recording after a short delay
-            setTimeout(() => {
-                this.startRecording();
-            }, 500);
-        }
-    }
-
-    displayAgentConversation(userMessage, aiResponse, messageCount) {
-        // Create or update conversation display area
-        const echoSection = document.querySelector('.echo-bot');
-        let conversationDiv = document.getElementById('conversationDisplay');
-
-        if (!conversationDiv) {
-            conversationDiv = document.createElement('div');
-            conversationDiv.id = 'conversationDisplay';
-            conversationDiv.className = 'conversation-display';
-            conversationDiv.innerHTML = `
-                <h4>💬 AI Agent Chat (${messageCount} messages)</h4>
-                <div class="conversation-content" id="conversationContent"></div>
-            `;
-
-            // Insert after audio playback
-            const audioPlayback = document.getElementById('audioPlayback');
-            audioPlayback.parentNode.insertBefore(conversationDiv, audioPlayback.nextSibling);
-
-            // Initialize conversation history storage
-            this.conversationHistory = [];
-        } else {
-            // Update message count
-            conversationDiv.querySelector('h4').textContent = `💬 AI Agent Chat (${messageCount} messages)`;
-        }
-
-        // Add new messages to history
-        this.conversationHistory.push(
-            { role: 'user', content: userMessage },
-            { role: 'assistant', content: aiResponse }
-        );
-
-        // Update the content with full conversation
-        const conversationContent = document.getElementById('conversationContent');
-
-        let conversationHTML = '';
-        this.conversationHistory.forEach((msg, index) => {
-            const isUser = msg.role === 'user';
-            const messageClass = isUser ? 'user-message' : 'ai-message';
-            const label = isUser ? '🎤 You' : '🤖 AI Agent';
-            const content = msg.content || (isUser ? 'No speech detected' : 'No response generated');
-
-            conversationHTML += `
-                <div class="message ${messageClass}">
-                    <div class="message-label">${label}</div>
-                    <div class="message-bubble">${content}</div>
-                </div>
-            `;
-        });
-
-        conversationContent.innerHTML = conversationHTML;
-
-        // Show the conversation display
-        conversationDiv.style.display = 'block';
-
-        // Scroll to bottom of conversation
-        setTimeout(() => {
-            conversationContent.scrollTop = conversationContent.scrollHeight;
-        }, 100);
-
-        console.log('💬 Agent conversation displayed with full history');
-    }
-
-    startTimer() {
-        const timerElement = document.getElementById('recordingTimer');
-        const timerText = document.getElementById('timerText');
-
-        timerElement.style.display = 'block';
-
-        this.timerInterval = setInterval(() => {
-            if (this.recordingStartTime) {
-                const elapsed = Math.floor((Date.now() - this.recordingStartTime) / 1000);
-                const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
-                const seconds = (elapsed % 60).toString().padStart(2, '0');
-                timerText.textContent = `${minutes}:${seconds}`;
-            }
-        }, 1000);
-    }
-
-    stopTimer() {
-        if (this.timerInterval) {
-            clearInterval(this.timerInterval);
-            this.timerInterval = null;
-        }
-        document.getElementById('recordingTimer').style.display = 'none';
-    }
-
+    // Add missing methods
     async processRecording(audioBlob) {
         this.updateVoiceStatus('Processing your message...', 'loading', true);
-        
+
         try {
             // Create form data for upload
             const formData = new FormData();
@@ -824,9 +368,9 @@ class VoiceAgent {
             });
 
             if (!response.ok) throw new Error('Failed to process audio');
-            
+
             const data = await response.json();
-            
+
             // Auto-play the response
             if (data.audio_url) {
                 const audio = new Audio(data.audio_url);
@@ -834,7 +378,7 @@ class VoiceAgent {
             }
 
             // Display the conversation
-            this.displayAgentConversation(data.user_message, data.ai_response, data.message_count);
+            this.displayAgentConversation(data.user_message, data.assistant_response, data.message_count);
             this.updateVoiceStatus('Ready to record', 'default');
 
         } catch (error) {
@@ -857,19 +401,19 @@ class VoiceAgent {
         }
     }
 
-    async checkServerConnection() {
-        try {
-            const response = await fetch('/api/health');
-            const data = await response.json();
-
-            if (data.status === 'healthy') {
-                this.updateConnectionStatus(true);
-                console.log('✅ Server connection established');
-            }
-        } catch (error) {
-            this.updateConnectionStatus(false);
-            console.log('❌ Server connection failed:', error);
-        }
+    checkServerConnection() {
+        // Check if server is available
+        fetch('/api/health')
+            .then(response => {
+                if (response.ok) {
+                    this.isConnected = true;
+                    console.log('✅ Server connection established');
+                }
+            })
+            .catch(error => {
+                this.isConnected = false;
+                console.error('❌ Server connection failed:', error);
+            });
     }
 
     updateConnectionStatus(isConnected) {
@@ -947,35 +491,65 @@ class VoiceAgent {
         });
     }
 
-    showInfo() {
-        const info = `
-🎤 AI Voice Agent - Day 1 of 30 Days Challenge
+    // Add missing methods
+    animateOnLoad() {
+        // Simple animation for UI elements on load
+        const voiceStatus = document.getElementById('voiceStatus');
+        if (voiceStatus) {
+            voiceStatus.classList.add('animate-in');
+            setTimeout(() => {
+                voiceStatus.classList.remove('animate-in');
+            }, 1000);
+        }
+    }
 
-Features planned for this project:
-• Real-time voice recognition
-• AI-powered responses
-• Natural conversation flow
-• Voice synthesis with Murf AI
-• Multi-language support
-• Custom voice training
+    startTimer() {
+        // Start recording timer
+        const timerDisplay = document.getElementById('recordingTimer');
+        if (!timerDisplay) return;
 
-Current Features:
-• AI Voice Agent Chat - Send messages to your AI assistant
-• Modern UI with responsive design
-• Server health monitoring
-• Real-time character counting
+        timerDisplay.style.display = 'block';
+        timerDisplay.textContent = '00:00';
 
-Day 1: Basic setup with Flask backend and modern frontend
-Day 2-30: Adding AI capabilities, voice recognition, and more!
+        const startTime = Date.now();
+        this.timerInterval = setInterval(() => {
+            const elapsedTime = Date.now() - startTime;
+            const seconds = Math.floor((elapsedTime / 1000) % 60);
+            const minutes = Math.floor((elapsedTime / (1000 * 60)) % 60);
+            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }, 1000);
+    }
 
-Keyboard Shortcuts:
-• Ctrl+Space: Toggle voice chat
-• Ctrl+Enter (in message area): Send message to AI agent
+    stopTimer() {
+        // Stop recording timer
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
+        }
+        const timerDisplay = document.getElementById('recordingTimer');
+        if (timerDisplay) {
+            timerDisplay.style.display = 'none';
+        }
+    }
 
-Try the AI agent section below to chat with your intelligent assistant!
-        `;
+    updateEchoStatus(message, type = 'default', showSpinner = false) {
+        // Update status message in the UI
+        const statusElement = document.getElementById('echoStatus');
+        if (!statusElement) return;
 
-        alert(info);
+        // Clear existing classes
+        statusElement.className = 'echo-status';
+        if (type !== 'default') {
+            statusElement.classList.add(`status-${type}`);
+        }
+
+        statusElement.textContent = message;
+
+        // Handle spinner if needed
+        const spinner = document.getElementById('echoSpinner');
+        if (spinner) {
+            spinner.style.display = showSpinner ? 'inline-block' : 'none';
+        }
     }
 
     showNotification(message, type = 'info') {
@@ -1024,6 +598,165 @@ Try the AI agent section below to chat with your intelligent assistant!
                 document.body.removeChild(notification);
             }, 300);
         }, 3000);
+    }
+
+    displayTranscription(transcript, type = 'real-time', confidence = null) {
+        // Create or get transcription display area
+        let transcriptionArea = document.getElementById('transcriptionArea');
+        if (!transcriptionArea) {
+            transcriptionArea = document.createElement('div');
+            transcriptionArea.id = 'transcriptionArea';
+            transcriptionArea.className = 'transcription-area';
+            transcriptionArea.innerHTML = `
+                <h3>🎤 Live Transcription</h3>
+                <div id="transcriptionContent"></div>
+            `;
+
+            // Style the transcription area
+            Object.assign(transcriptionArea.style, {
+                position: 'fixed',
+                bottom: '20px',
+                left: '20px',
+                width: '400px',
+                maxHeight: '300px',
+                backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                color: 'white',
+                padding: '20px',
+                borderRadius: '12px',
+                fontSize: '14px',
+                zIndex: '1000',
+                overflowY: 'auto',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)'
+            });
+
+            document.body.appendChild(transcriptionArea);
+        }
+
+        const content = document.getElementById('transcriptionContent');
+        const timestamp = new Date().toLocaleTimeString();
+
+        // Create transcription entry
+        const entry = document.createElement('div');
+        entry.className = `transcription-entry ${type}`;
+        entry.innerHTML = `
+            <div class="transcription-header">
+                <span class="transcription-type">${type === 'real-time' ? '🔄 Live' : '✅ Final'}</span>
+                <span class="transcription-time">${timestamp}</span>
+                ${confidence ? `<span class="transcription-confidence">${Math.round(confidence * 100)}%</span>` : ''}
+            </div>
+            <div class="transcription-text">${transcript}</div>
+        `;
+
+        // Style the entry
+        Object.assign(entry.style, {
+            marginBottom: '10px',
+            padding: '10px',
+            backgroundColor: type === 'real-time' ? 'rgba(102, 126, 234, 0.2)' : 'rgba(0, 255, 136, 0.2)',
+            borderRadius: '8px',
+            border: `1px solid ${type === 'real-time' ? '#667eea' : '#00ff88'}`
+        });
+
+        content.appendChild(entry);
+
+        // Scroll to bottom
+        transcriptionArea.scrollTop = transcriptionArea.scrollHeight;
+
+        // Remove old entries if too many
+        const entries = content.querySelectorAll('.transcription-entry');
+        if (entries.length > 10) {
+            entries[0].remove();
+        }
+    }
+
+    displayAgentConversation(userMessage, aiResponse, messageCount) {
+        const conversationDiv = document.getElementById('conversationDisplay');
+        if (!conversationDiv) return;
+
+        // Show the conversation display
+        conversationDiv.style.display = 'block';
+
+        // Create conversation entry
+        const conversationEntry = document.createElement('div');
+        conversationEntry.className = 'conversation-entry';
+        conversationEntry.innerHTML = `
+            <div class="message user-message">
+                <div class="message-header">
+                    <span class="message-type">👤 You</span>
+                    <span class="message-time">${new Date().toLocaleTimeString()}</span>
+                </div>
+                <div class="message-content">${userMessage}</div>
+            </div>
+            <div class="message ai-message">
+                <div class="message-header">
+                    <span class="message-type">🤖 AI Assistant</span>
+                    <span class="message-time">${new Date().toLocaleTimeString()}</span>
+                </div>
+                <div class="message-content">${aiResponse}</div>
+            </div>
+        `;
+
+        // Style the conversation entry
+        Object.assign(conversationEntry.style, {
+            marginBottom: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+        });
+
+        // Style user message
+        const userMsg = conversationEntry.querySelector('.user-message');
+        Object.assign(userMsg.style, {
+            background: 'rgba(102, 126, 234, 0.1)',
+            border: '1px solid rgba(102, 126, 234, 0.3)',
+            borderRadius: '12px',
+            padding: '16px',
+            alignSelf: 'flex-end',
+            maxWidth: '80%'
+        });
+
+        // Style AI message
+        const aiMsg = conversationEntry.querySelector('.ai-message');
+        Object.assign(aiMsg.style, {
+            background: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '12px',
+            padding: '16px',
+            alignSelf: 'flex-start',
+            maxWidth: '80%'
+        });
+
+        // Style message headers
+        const headers = conversationEntry.querySelectorAll('.message-header');
+        headers.forEach(header => {
+            Object.assign(header.style, {
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '8px',
+                fontSize: '0.9rem',
+                opacity: '0.8'
+            });
+        });
+
+        // Style message content
+        const contents = conversationEntry.querySelectorAll('.message-content');
+        contents.forEach(content => {
+            Object.assign(content.style, {
+                fontSize: '1rem',
+                lineHeight: '1.5'
+            });
+        });
+
+        conversationDiv.appendChild(conversationEntry);
+
+        // Scroll to bottom
+        conversationDiv.scrollTop = conversationDiv.scrollHeight;
+
+        // Remove old entries if too many
+        const entries = conversationDiv.querySelectorAll('.conversation-entry');
+        if (entries.length > 5) {
+            entries[0].remove();
+        }
     }
 
     animateOnLoad() {
@@ -1080,6 +813,42 @@ style.textContent = `
     @keyframes micPulse {
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.1); }
+    }
+    
+    .echo-status.status-transcription {
+        color: #667eea !important;
+        font-weight: bold;
+    }
+    
+    .transcription-area h3 {
+        margin: 0 0 15px 0;
+        color: #00ff88;
+        font-size: 16px;
+    }
+    
+    .transcription-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 5px;
+        font-size: 12px;
+        opacity: 0.8;
+    }
+    
+    .transcription-type {
+        font-weight: bold;
+    }
+    
+    .transcription-confidence {
+        background: rgba(0, 255, 136, 0.3);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+    }
+    
+    .transcription-text {
+        font-size: 13px;
+        line-height: 1.4;
     }
 `;
 document.head.appendChild(style);

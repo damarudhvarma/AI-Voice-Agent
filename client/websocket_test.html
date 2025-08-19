@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebSocket Audio Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+      .status.connected {
+        background: #d4edda;
+        color: #155724;
+      }
+      .status.disconnected {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .status.recording {
+        background: #fff3cd;
+        color: #856404;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      button:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+      }
+      .log {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        padding: 10px;
+        border-radius: 4px;
+        max-height: 300px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🎤 WebSocket Audio Streaming Test</h1>
+
+      <div id="status" class="status disconnected">Disconnected</div>
+
+      <div>
+        <button id="connectBtn" onclick="connectWebSocket()">
+          Connect WebSocket
+        </button>
+        <button id="recordBtn" onclick="toggleRecording()" disabled>
+          Start Recording
+        </button>
+        <button id="disconnectBtn" onclick="disconnectWebSocket()" disabled>
+          Disconnect
+        </button>
+      </div>
+
+      <div>
+        <h3>Recording Status:</h3>
+        <div id="recordingStatus">Not recording</div>
+        <div
+          id="timer"
+          style="font-size: 24px; font-weight: bold; margin: 10px 0"
+        >
+          00:00
+        </div>
+      </div>
+
+      <div>
+        <h3>WebSocket Log:</h3>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+
+    <script>
+      let websocket = null;
+      let mediaRecorder = null;
+      let isRecording = false;
+      let recordingStartTime = null;
+      let timerInterval = null;
+      let chunkCount = 0;
+      let totalBytes = 0;
+
+      function log(message) {
+        const logDiv = document.getElementById("log");
+        const timestamp = new Date().toLocaleTimeString();
+        logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+
+      function updateStatus(message, className) {
+        const statusDiv = document.getElementById("status");
+        statusDiv.textContent = message;
+        statusDiv.className = `status ${className}`;
+      }
+
+      function updateRecordingStatus(message) {
+        document.getElementById("recordingStatus").textContent = message;
+      }
+
+      function connectWebSocket() {
+        try {
+          const protocol =
+            window.location.protocol === "https:" ? "wss:" : "ws:";
+          const wsUrl = `${protocol}//${window.location.host}/ws/audio`;
+
+          log(`Connecting to WebSocket: ${wsUrl}`);
+
+          websocket = new WebSocket(wsUrl);
+
+          websocket.onopen = () => {
+            log("✅ WebSocket connected");
+            updateStatus("Connected", "connected");
+            document.getElementById("connectBtn").disabled = true;
+            document.getElementById("recordBtn").disabled = false;
+            document.getElementById("disconnectBtn").disabled = false;
+          };
+
+          websocket.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              log(`📨 Received: ${JSON.stringify(data)}`);
+
+              if (data.type === "status") {
+                updateRecordingStatus(`Server: ${data.message}`);
+              } else if (data.type === "error") {
+                log(`❌ Error: ${data.message}`);
+              } else if (data.type === "chunk_received") {
+                log(
+                  `📦 Chunk received: ${data.chunk_size} bytes (total: ${data.total_size} bytes)`
+                );
+              } else if (data.type === "transcription") {
+                log(`🎤 REAL-TIME TRANSCRIPTION: ${data.transcript}`);
+                updateRecordingStatus(`🎤 Live: ${data.transcript}`);
+              } else if (data.type === "final_transcription") {
+                log(`🎤 FINAL TRANSCRIPTION: ${data.transcript}`);
+                updateRecordingStatus(`🎤 Final: ${data.transcript}`);
+              }
+            } catch (e) {
+              log(`📨 Raw message: ${event.data}`);
+            }
+          };
+
+          websocket.onerror = (error) => {
+            log(`❌ WebSocket error: ${error}`);
+            updateStatus("Connection Error", "disconnected");
+          };
+
+          websocket.onclose = () => {
+            log("🔌 WebSocket disconnected");
+            updateStatus("Disconnected", "disconnected");
+            document.getElementById("connectBtn").disabled = false;
+            document.getElementById("recordBtn").disabled = true;
+            document.getElementById("disconnectBtn").disabled = true;
+            if (isRecording) {
+              stopRecording();
+            }
+          };
+        } catch (error) {
+          log(`❌ Connection error: ${error}`);
+          updateStatus("Connection Failed", "disconnected");
+        }
+      }
+
+      function disconnectWebSocket() {
+        if (websocket) {
+          websocket.close();
+          websocket = null;
+        }
+      }
+
+      async function toggleRecording() {
+        if (!isRecording) {
+          await startRecording();
+        } else {
+          stopRecording();
+        }
+      }
+
+      async function startRecording() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          log("❌ Browser does not support audio recording");
+          return;
+        }
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+          });
+
+          mediaRecorder = new MediaRecorder(stream);
+          isRecording = true;
+          chunkCount = 0;
+          totalBytes = 0;
+
+          // Send start signal
+          if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.send(
+              JSON.stringify({
+                type: "start",
+                timestamp: Date.now(),
+              })
+            );
+          }
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              sendAudioChunk(event.data);
+            }
+          };
+
+          mediaRecorder.onstop = () => {
+            stream.getTracks().forEach((track) => track.stop());
+            stopTimer();
+            updateRecordingStatus("Recording stopped");
+          };
+
+          // Start recording with 100ms chunks
+          mediaRecorder.start(100);
+          recordingStartTime = Date.now();
+          startTimer();
+
+          document.getElementById("recordBtn").textContent = "Stop Recording";
+          updateRecordingStatus("Recording...");
+          updateStatus("Recording", "recording");
+
+          log("🎤 Recording started");
+        } catch (error) {
+          log(`❌ Error starting recording: ${error}`);
+          updateRecordingStatus("Failed to start recording");
+        }
+      }
+
+      function sendAudioChunk(audioBlob) {
+        if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+          log("⚠️ WebSocket not connected, cannot send chunk");
+          return;
+        }
+
+        try {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const base64Data = reader.result.split(",")[1];
+            websocket.send(base64Data);
+            chunkCount++;
+            totalBytes += audioBlob.size;
+            log(
+              `📤 Sent chunk ${chunkCount}: ${audioBlob.size} bytes (total: ${totalBytes} bytes)`
+            );
+          };
+          reader.readAsDataURL(audioBlob);
+        } catch (error) {
+          log(`❌ Error sending audio chunk: ${error}`);
+        }
+      }
+
+      function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+          mediaRecorder.stop();
+
+          // Send stop signal
+          if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.send(
+              JSON.stringify({
+                type: "stop",
+                timestamp: Date.now(),
+              })
+            );
+          }
+
+          document.getElementById("recordBtn").textContent = "Start Recording";
+          updateStatus("Connected", "connected");
+
+          log(
+            `🛑 Recording stopped. Sent ${chunkCount} chunks, ${totalBytes} total bytes`
+          );
+        }
+      }
+
+      function startTimer() {
+        timerInterval = setInterval(() => {
+          if (recordingStartTime) {
+            const elapsed = Math.floor(
+              (Date.now() - recordingStartTime) / 1000
+            );
+            const minutes = Math.floor(elapsed / 60)
+              .toString()
+              .padStart(2, "0");
+            const seconds = (elapsed % 60).toString().padStart(2, "0");
+            document.getElementById(
+              "timer"
+            ).textContent = `${minutes}:${seconds}`;
+          }
+        }, 1000);
+      }
+
+      function stopTimer() {
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+        document.getElementById("timer").textContent = "00:00";
+      }
+
+      // Initialize
+      log("🚀 WebSocket Audio Test initialized");
+      log('Click "Connect WebSocket" to start');
+    </script>
+  </body>
+</html>
