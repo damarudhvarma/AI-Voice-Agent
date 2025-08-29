@@ -11,17 +11,28 @@ class STTService:
     """Speech-to-Text service using AssemblyAI"""
     
     def __init__(self):
-        self.api_key = Config.ASSEMBLYAI_API_KEY
-        self._configure_assemblyai()
+        # Don't store API key at initialization - get it dynamically
+        pass
     
-    def _configure_assemblyai(self) -> None:
-        """Configure AssemblyAI with API key"""
+    def _get_current_api_key(self) -> str:
+        """Get the current user-provided API key"""
+        return Config.get_effective_api_key('ASSEMBLYAI_API_KEY')
+    
+    def _configure_assemblyai(self) -> bool:
+        """Configure AssemblyAI with current API key"""
         if not Config.is_api_key_configured('ASSEMBLYAI_API_KEY'):
-            logger.warning("AssemblyAI API key not configured")
-            return
+            logger.error("AssemblyAI API key not configured by user")
+            return False
         
-        aai.settings.api_key = self.api_key
-        logger.info("AssemblyAI configured successfully")
+        current_key = self._get_current_api_key()
+        if not current_key:
+            logger.error("No user-provided AssemblyAI API key available")
+            return False
+            
+        aai.settings.api_key = current_key
+        logger.info("AssemblyAI configured with user-provided API key")
+        return True
+        
     
     def transcribe_audio(self, audio_data: bytes) -> Tuple[bool, TranscriptionResponse, Optional[ErrorType]]:
         """
@@ -34,14 +45,15 @@ class STTService:
             Tuple of (success, response, error_type)
         """
         try:
-            if not Config.is_api_key_configured('ASSEMBLYAI_API_KEY'):
-                logger.error("AssemblyAI API key not configured")
+            # Configure AssemblyAI with user-provided API key for this request
+            if not self._configure_assemblyai():
+                logger.error("Cannot transcribe: User must provide AssemblyAI API key")
                 return False, TranscriptionResponse(
                     success=False,
-                    transcript="[API key not configured]"
+                    transcript="[Please configure AssemblyAI API key in settings]"
                 ), ErrorType.API_KEY_MISSING
             
-            logger.info("Starting audio transcription")
+            logger.info("Starting audio transcription with user-provided API key")
             
             transcriber = aai.Transcriber()
             transcript = transcriber.transcribe(audio_data)

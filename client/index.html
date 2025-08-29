@@ -21,6 +21,27 @@
             <span class="status-indicator"></span>
             <span class="status-text">Ready</span>
           </div>
+          <div class="nav-actions">
+            <button
+              class="btn-settings"
+              id="openSettings"
+              title="API Configuration"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle cx="12" cy="12" r="3"></circle>
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                ></path>
+              </svg>
+            </button>
+          </div>
         </nav>
       </header>
 
@@ -39,7 +60,7 @@
             conversations powered by cutting-edge technology.
           </p>
           <div class="hero-buttons">
-            <button class="btn btn-primary" id="startVoice">
+            <button class="btn btn-primary" id="letsGetStarted">
               <svg
                 class="btn-icon"
                 width="20"
@@ -56,7 +77,7 @@
                 <path d="M12 19V23" />
                 <path d="M8 23H16" />
               </svg>
-              Start Voice Chat
+              <span class="record-text">Let's Get Started</span>
             </button>
             <button class="btn btn-secondary" id="learnMore">
               Learn More
@@ -170,6 +191,86 @@
               </div>
             </div>
 
+            <!-- Quick Questions Section -->
+            <div class="quick-questions" id="quickQuestions">
+              <h3 class="quick-questions-title">
+                ⚡ Quick Questions
+                <span class="quick-questions-subtitle"
+                  >Try these voice commands</span
+                >
+              </h3>
+              <div class="quick-questions-grid">
+                <button
+                  class="quick-question-btn"
+                  data-command="calculate 15 + 25"
+                >
+                  <span class="quick-question-icon">🧮</span>
+                  <span class="quick-question-text">Calculate 15 + 25</span>
+                </button>
+                <button
+                  class="quick-question-btn"
+                  data-command="weather in New York"
+                >
+                  <span class="quick-question-icon">🌤️</span>
+                  <span class="quick-question-text">Weather in New York</span>
+                </button>
+                <button
+                  class="quick-question-btn"
+                  data-command="convert 10 miles to kilometers"
+                >
+                  <span class="quick-question-icon">🔄</span>
+                  <span class="quick-question-text"
+                    >Convert 10 miles to km</span
+                  >
+                </button>
+                <button
+                  class="quick-question-btn"
+                  data-command="what time is it in India"
+                >
+                  <span class="quick-question-icon">🕐</span>
+                  <span class="quick-question-text">Time in India</span>
+                </button>
+                <button
+                  class="quick-question-btn"
+                  data-command="set reminder for 3 PM"
+                >
+                  <span class="quick-question-icon">⏰</span>
+                  <span class="quick-question-text">Set reminder for 3 PM</span>
+                </button>
+                <button
+                  class="quick-question-btn"
+                  data-command="note: meeting at 2 PM tomorrow"
+                >
+                  <span class="quick-question-icon">📝</span>
+                  <span class="quick-question-text">Take a note</span>
+                </button>
+                <button
+                  class="quick-question-btn"
+                  data-command="100 USD to EUR"
+                >
+                  <span class="quick-question-icon">💱</span>
+                  <span class="quick-question-text">100 USD to EUR</span>
+                </button>
+                <button
+                  class="quick-question-btn"
+                  data-command="what are the latest news today"
+                >
+                  <span class="quick-question-icon">📰</span>
+                  <span class="quick-question-text">Latest news today</span>
+                </button>
+              </div>
+              <div class="quick-questions-hint">
+                <span
+                  >💡 Click any button to execute the command instantly</span
+                >
+              </div>
+              <div class="quick-questions-actions">
+                <button class="btn-show-more" id="showMoreCommands">
+                  📋 Show More Commands
+                </button>
+              </div>
+            </div>
+
             <div class="voice-status" id="voiceStatus">
               <div class="status-message" id="statusMessage">
                 Ready to chat with AI agent
@@ -214,6 +315,12 @@
       </section>
     </div>
 
-    <script src="script.js"></script>
+    <!-- Modular JavaScript files -->
+    <script src="js/modules/AudioPlayer.js"></script>
+    <script src="js/modules/WebSocketManager.js"></script>
+    <script src="js/modules/RecordingManager.js"></script>
+    <script src="js/modules/UIManager.js"></script>
+    <script src="js/modules/ConfigManager.js"></script>
+    <script src="script-refactored.js"></script>
   </body>
 </html>
