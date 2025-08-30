@@ -3,9 +3,41 @@ from flask_cors import CORS
 from flask_sock import Sock
 from werkzeug.exceptions import RequestEntityTooLarge
 import os
+import sys
 import json
 import time
 import base64
+
+# Add current directory to Python path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
+# Also add parent directory to handle different deployment scenarios
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+# Ensure we're in the correct working directory
+if os.path.basename(os.getcwd()) != 'server':
+    server_dir = current_dir
+    if os.path.exists(server_dir) and os.path.basename(server_dir) == 'server':
+        os.chdir(server_dir)
+        print(f"✅ Changed working directory to: {server_dir}")
+
+print(f"🔧 Working directory: {os.getcwd()}")
+print(f"🔧 Python path includes: {sys.path[:3]}")
+print(f"📁 Available directories: {[d for d in os.listdir('.') if os.path.isdir(d)]}")
+print(f"📄 Python files: {[f for f in os.listdir('.') if f.endswith('.py')]}")
+
+# Verify critical paths exist
+critical_paths = ['models', 'services', 'utils']
+for path in critical_paths:
+    if os.path.exists(path):
+        print(f"✅ {path}/ directory exists")
+        files = [f for f in os.listdir(path) if f.endswith('.py')]
+        print(f"   Files: {files}")
+    else:
+        print(f"❌ {path}/ directory missing!")
 
 # Import our custom modules
 from utils.config import Config
@@ -33,6 +65,9 @@ sock = Sock(app)
 # Configure app
 app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
 
+# Ensure upload folder exists
+Config.ensure_upload_folder()
+
 
 @app.errorhandler(RequestEntityTooLarge)
 def handle_file_too_large(e):
@@ -40,7 +75,7 @@ def handle_file_too_large(e):
     logger.warning("File upload size limit exceeded")
     return jsonify(ErrorResponse(
         error="File too large. Maximum size is 16MB."
-    ).model_dump()), 413
+    ).dict()), 413
 
 
 @app.errorhandler(Exception)
@@ -49,7 +84,7 @@ def handle_generic_error(e):
     logger.error(f"Unhandled error: {str(e)}")
     return jsonify(ErrorResponse(
         error="Internal server error. Please try again."
-    ).model_dump()), 500
+    ).dict()), 500
 
 
 @app.route('/')
@@ -1470,6 +1505,25 @@ def websocket_turn_detection(ws):
 
 
 if __name__ == '__main__':
+    # Get port from environment variable (Render sets this automatically)
+    port = int(os.environ.get('PORT', 5000))
+    debug_mode = os.environ.get('FLASK_ENV', 'development') == 'development'
+    
     logger.info("🎤 AI Voice Agent Server Starting...")
-    logger.info("🌐 Server running at: http://localhost:5000")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    logger.info(f"🌐 Server running on port: {port}")
+    logger.info(f"🔧 Debug mode: {debug_mode}")
+    
+    # Check API key configuration and log warnings
+    if not Config.is_api_key_configured('ASSEMBLYAI_API_KEY'):
+        logger.warning("⚠️  ASSEMBLYAI_API_KEY not configured")
+    if not Config.is_api_key_configured('GEMINI_API_KEY'):
+        logger.warning("⚠️  GEMINI_API_KEY not configured")
+    if not Config.is_api_key_configured('MURF_API_KEY'):
+        logger.warning("⚠️  MURF_API_KEY not configured")
+    
+    # Log API status
+    api_status = Config.get_api_status()
+    logger.info(f"🔑 API Status: {api_status}")
+    
+    # Run the app
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)

@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: ai-voice-agent
+    env: python
+    buildCommand: pip install -r server/requirements.txt
+    startCommand: python run.py
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        generateValue: true
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONPATH
+        value: "/opt/render/project/src/server"
+      # Required API Keys - these must be set during deployment
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MURF_API_KEY
+        sync: false
+      # Optional API Keys for enhanced features
+      - key: SERP_API_KEY
+        sync: false
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: EXCHANGE_RATE_API_KEY
+        sync: false
+      - key: NEWS_API_KEY
+        sync: false
+      # Configuration defaults
+      - key: MURF_VOICE_ID
+        value: en-US-ken
+      - key: MURF_STYLE
+        value: Conversational
+      - key: GEMINI_MODEL
+        value: gemini-1.5-flash
+      - key: MAX_CHAT_HISTORY
+        value: "50"
+      - key: REQUEST_TIMEOUT
+        value: "30"
+      - key: MAX_CONTENT_LENGTH
+        value: "16777216"

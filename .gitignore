@@ -187,8 +187,13 @@ tmp/
 *.sqlite
 *.sqlite3
 
-# Model files (AI models can be large)
-models/
+# Model files (AI models can be large) - but NOT our schema models
+# models/  # Commented out to allow server/models/ directory
 *.model
 *.pkl
 *.joblib
+
+# Exclude AI model files specifically
+/models/
+ai_models/
+ml_models/

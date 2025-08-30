@@ -1,0 +1,17 @@
+# Stable requirements for Render deployment
+# These versions are tested to work on Render's build environment
+
+Flask==2.3.3
+Flask-CORS==4.0.0
+requests==2.31.0
+assemblyai==0.30.0
+python-dotenv==1.0.0
+google-generativeai==0.7.2
+pydantic==1.10.12
+flask-sock==0.7.0
+websocket-client==1.7.0
+pydub==0.25.1
+gunicorn==20.1.0
+
+# Additional dependencies that might be needed
+typing-extensions==4.7.1

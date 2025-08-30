@@ -102,6 +102,12 @@ class Config:
     UPLOAD_FOLDER: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
     MAX_CONTENT_LENGTH: int = 16 * 1024 * 1024  # 16MB
     
+    @classmethod
+    def ensure_upload_folder(cls):
+        """Ensure upload folder exists"""
+        if not os.path.exists(cls.UPLOAD_FOLDER):
+            os.makedirs(cls.UPLOAD_FOLDER, exist_ok=True)
+    
     # Timeout Configuration
     REQUEST_TIMEOUT: int = 30
     
