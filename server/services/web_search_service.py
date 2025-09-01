@@ -30,8 +30,11 @@ class WebSearchService:
     """Service for web search using SerpAPI"""
     
     def __init__(self):
-        self.api_key = Config.SERP_API_KEY
         self.base_url = "https://serpapi.com/search"
+    
+    def _get_current_api_key(self) -> str:
+        """Get the current user-provided API key"""
+        return Config.get_effective_api_key('SERP_API_KEY')
     
     def search(self, query: str, num_results: int = 3) -> Tuple[bool, List[SearchResult], Optional[str]]:
         """
@@ -57,7 +60,7 @@ class WebSearchService:
             
             params = {
                 'q': query.strip(),
-                'api_key': self.api_key,
+                'api_key': self._get_current_api_key(),
                 'engine': 'google',
                 'num': min(num_results, 10),  # Limit to max 10 results
                 'gl': 'us',  # Country code

@@ -252,7 +252,8 @@ class NewsService:
     def is_configured(self) -> bool:
         """Check if the news service is properly configured"""
         configured = Config.is_api_key_configured('NEWS_API_KEY')
-        logger.info(f"NewsAPI configuration check: configured={configured}, api_key_length={len(self.api_key) if self.api_key else 0}")
+        current_key = self._get_current_api_key()
+        logger.info(f"NewsAPI configuration check: configured={configured}, api_key_length={len(current_key) if current_key else 0}")
         return configured
 
 

@@ -73,7 +73,7 @@ class TTSService:
             
             headers = {
                 'Content-Type': 'application/json',
-                'api-key': current_api_key
+                'api-key': self._get_current_api_key()
             }
             
             # Make request to Murf API
@@ -174,7 +174,7 @@ class TTSService:
             
             headers = {
                 'Content-Type': 'application/json',
-                'api-key': current_api_key
+                'api-key': self._get_current_api_key()
             }
             
             # Make request to Murf API
@@ -259,7 +259,7 @@ class TTSService:
             
             headers = {
                 'Content-Type': 'application/json',
-                'api-key': current_api_key
+                'api-key': self._get_current_api_key()
             }
             
             # Make request with reduced timeout for faster response
@@ -344,7 +344,7 @@ class TTSService:
             
             headers = {
                 'Content-Type': 'application/json',
-                'api-key': current_api_key
+                'api-key': self._get_current_api_key()
             }
             
             # Make request to Murf API

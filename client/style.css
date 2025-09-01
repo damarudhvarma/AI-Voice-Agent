@@ -1671,3 +1671,98 @@ body {
     flex-direction: column;
   }
 }
+
+/* Footer Styles */
+.footer {
+  background: linear-gradient(
+    135deg,
+    rgba(15, 15, 35, 0.98) 0%,
+    rgba(26, 26, 46, 0.98) 100%
+  );
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 24px 0;
+  margin-top: 40px;
+  position: relative;
+}
+
+.footer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(102, 126, 234, 0.3),
+    transparent
+  );
+}
+
+.footer-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.murf-branding {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.murf-branding:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(102, 126, 234, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.15);
+}
+
+.murf-text {
+  font-size: 0.9rem;
+  color: #b0b0b0;
+  font-weight: 400;
+}
+
+.murf-logo {
+  font-size: 1.1rem;
+  font-weight: 700;
+  background: linear-gradient(45deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  background-size: 200% 200%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 3s ease-in-out infinite;
+  letter-spacing: 0.5px;
+}
+
+/* Responsive footer */
+@media (max-width: 768px) {
+  .footer {
+    padding: 20px 0;
+    margin-top: 30px;
+  }
+
+  .murf-branding {
+    padding: 6px 12px;
+  }
+
+  .murf-text {
+    font-size: 0.85rem;
+  }
+
+  .murf-logo {
+    font-size: 1rem;
+  }
+}

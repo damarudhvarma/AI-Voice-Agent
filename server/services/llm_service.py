@@ -199,9 +199,10 @@ Remember: Be helpful first, funny second. Make sure your technical information i
             Text chunks as they are generated
         """
         try:
-            if not Config.is_api_key_configured('GEMINI_API_KEY'):
-                logger.error("Gemini API key not configured")
-                yield "[LLM not configured]"
+            # Configure Gemini with user-provided API key for this request
+            if not self._configure_gemini():
+                logger.error("Cannot generate streaming response: User must provide Gemini API key")
+                yield "[Please configure Gemini API key in settings]"
                 return
             
             if not prompt.strip():
